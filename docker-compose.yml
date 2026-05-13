@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: dast_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dast_wrapper
+      POSTGRES_USER: dast_user
+      POSTGRES_PASSWORD: dast_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dast_user -d dast_wrapper"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: dast_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: dast_zap
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - zap_data:/zap/wrk
+    command:
+      [
+        "zap.sh",
+        "-daemon",
+        "-host",
+        "0.0.0.0",
+        "-port",
+        "8080",
+        "-config",
+        "api.disablekey=true"
+      ]
+
+  app:
+    build: .
+    container_name: dast_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dast_user:dast_password@postgres:5432/dast_wrapper
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      ZAP_API_URL: http://zap:8080
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - ./configs:/app/configs
+      - ./reports:/app/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  celery_worker:
+    build: .
+    container_name: dast_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dast_user:dast_password@postgres:5432/dast_wrapper
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      ZAP_API_URL: http://zap:8080
+    volumes:
+      - .:/app
+      - ./configs:/app/configs
+      - ./reports:/app/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app worker --loglevel=info
+
+volumes:
+  postgres_data:
+  zap_data:

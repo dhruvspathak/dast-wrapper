@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Security Scan Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .finding { border: 1px solid #ccc; padding: 10px; margin: 10px 0; }
+        .high { border-color: red; }
+        .medium { border-color: orange; }
+        .low { border-color: green; }
+    </style>
+</head>
+<body>
+    <h1>Security Scan Report</h1>
+    <p>Application: {{ application_name }}</p>
+    <p>Scan Date: {{ scan_date }}</p>
+
+    <h2>Executive Summary</h2>
+    <p>Total Findings: {{ findings|length }}</p>
+
+    <h2>Findings</h2>
+    {% for finding in findings %}
+    <div class="finding {{ finding.severity|lower }}">
+        <h3>{{ finding.title }}</h3>
+        <p><strong>Severity:</strong> {{ finding.severity }}</p>
+        <p><strong>URL:</strong> {{ finding.url }}</p>
+        <p><strong>Description:</strong> {{ finding.description }}</p>
+        {% if finding.ai_analysis %}
+        <p><strong>AI Analysis:</strong> {{ finding.ai_analysis }}</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</body>
+</html>

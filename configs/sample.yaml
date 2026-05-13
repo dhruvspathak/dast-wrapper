@@ -1,0 +1,34 @@
+application:
+  name: intra-portal
+  base_url: https://intra.inflowtechnologies.com
+
+authentication:
+  type: playwright_jwt
+  login_url: https://intra.inflowtechnologies.com/signin
+
+  users:
+    employee:
+      username: p.dhruv@inflowtechnologies.com
+      password: OptimalGold@Gr33n
+
+    manager:
+      username: p.dhruv@inflowtechnologies.com
+      password: OptimalGold@Gr33n
+
+    admin:
+      username: p.dhruv@inflowtechnologies.com
+      password: OptimalGold@Gr33n
+
+roles:
+  - employee
+  - manager
+  - admin
+
+authorization_tests:
+  identifiers:
+    - user_id
+    - plan_id
+    - report_id
+  workflows:
+    - create_plan
+    - approve_plan
