@@ -9,15 +9,15 @@ authentication:
   users:
     employee:
       username: p.dhruv@inflowtechnologies.com
-      password: OptimalGold@Gr33n
+      password: pass
 
     manager:
       username: p.dhruv@inflowtechnologies.com
-      password: OptimalGold@Gr33n
+      password: pass
 
     admin:
       username: p.dhruv@inflowtechnologies.com
-      password: OptimalGold@Gr33n
+      password: pass
 
 roles:
   - employee
