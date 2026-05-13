@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import structlog
 
 from app.core.config import settings
-from app.api.routes import scans, auth, reports
+from app.api.routes import scans, auth, reports, dashboard
 
 # Configure structured logging
 structlog.configure(
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(scans.router, prefix="/api/v1/scans", tags=["scans"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["reports"])
+app.include_router(dashboard.router, tags=["dashboard"])
 
 @app.get("/health")
 async def health_check():

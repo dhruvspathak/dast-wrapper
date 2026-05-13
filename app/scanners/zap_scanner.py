@@ -2,17 +2,47 @@ import zapv2
 from typing import Dict, List, Any
 import time
 import logging
+from requests.exceptions import RequestException
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class ZAPScanner:
-    def __init__(self, api_url: str = "http://localhost:8080"):
-        self.zap = zapv2.ZAPv2(apikey="", proxies={'http': api_url, 'https': api_url})
-        self.api_url = api_url
+    def __init__(self, api_url: str | None = None):
+        self.api_url = api_url or settings.zap_api_url
+        self.zap = zapv2.ZAPv2(
+            apikey="",
+            proxies={'http': self.api_url, 'https': self.api_url},
+            validate_status_code=True,
+        )
+
+    def wait_until_ready(self, timeout_seconds: int = 60) -> None:
+        deadline = time.monotonic() + timeout_seconds
+        last_error = None
+
+        while time.monotonic() < deadline:
+            try:
+                _ = self.zap.core.version
+                return
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+
+        raise RuntimeError(
+            f"ZAP API is not ready at {self.api_url}: {last_error}"
+        )
 
     def start_scan(self, target_url: str, auth_headers: Dict[str, str] = None) -> str:
+        self.wait_until_ready()
+
         # Set target
-        self.zap.urlopen(target_url)
+        try:
+            self.zap.urlopen(target_url)
+        except RequestException as exc:
+            raise RuntimeError(
+                f"ZAP proxy at {self.api_url} could not open target {target_url}: {exc}"
+            ) from exc
 
         # Import context if needed
         # self.zap.context.import_context(...)
@@ -23,7 +53,12 @@ class ZAPScanner:
                 self.zap.httpsessions.add_http_session_token(target_url, header, value)
 
         # Start spider
-        spider_id = self.zap.spider.scan(target_url)
+        try:
+            spider_id = self.zap.spider.scan(target_url)
+        except Exception as exc:
+            raise RuntimeError(
+                f"ZAP spider failed for {target_url} via {self.api_url}: {exc}"
+            ) from exc
         logger.info(f"Started spider scan: {spider_id}")
 
         # Wait for spider to complete

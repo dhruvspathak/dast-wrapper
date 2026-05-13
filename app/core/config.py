@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     # ZAP
     zap_api_url: str = Field(default="http://localhost:8080")
+    zap_scan_timeout_seconds: int = Field(default=1800)
+    zap_poll_interval_seconds: int = Field(default=5)
+    zap_poll_max_errors: int = Field(default=12)
 
     # Security
     secret_key: str = Field(default="your-secret-key-here")

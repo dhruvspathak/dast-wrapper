@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DAST Wrapper Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; }
+        input, button { margin: 5px; padding: 8px; }
+        #results { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>DAST Wrapper Platform Dashboard</h1>
+
+    <div class="section">
+        <h2>Upload Configuration</h2>
+        <input type="file" id="configFile" accept=".yaml">
+        <button onclick="uploadConfig()">Upload Config</button>
+        <div id="configResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Start Scan</h2>
+        <input type="text" id="configId" placeholder="Config ID">
+        <button onclick="startScan()">Start Scan</button>
+        <div id="scanResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Check Scan Status</h2>
+        <input type="text" id="jobId" placeholder="Job ID">
+        <button onclick="checkStatus()">Check Status</button>
+        <div id="statusResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Get Findings</h2>
+        <input type="text" id="scanId" placeholder="Scan ID">
+        <button onclick="getFindings()">Get Findings</button>
+        <div id="findingsResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Generate Report</h2>
+        <input type="text" id="reportScanId" placeholder="Scan ID">
+        <button onclick="generateReport()">Generate Report</button>
+        <div id="reportResult"></div>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        async function uploadConfig() {
+            const fileInput = document.getElementById('configFile');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const response = await fetch('/api/v1/scans/upload-config', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            document.getElementById('configResult').innerText = JSON.stringify(result, null, 2);
+        }
+
+        async function startScan() {
+            const configId = document.getElementById('configId').value;
+            const response = await fetch('/api/v1/scans/start-scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config_id: configId })
+            });
+            const result = await response.json();
+            document.getElementById('scanResult').innerText = JSON.stringify(result, null, 2);
+        }
+
+        async function checkStatus() {
+            const jobId = document.getElementById('jobId').value;
+            const response = await fetch(`/api/v1/scans/scan-status/${jobId}`);
+            const result = await response.json();
+            document.getElementById('statusResult').innerText = JSON.stringify(result, null, 2);
+        }
+
+        async function getFindings() {
+            const scanId = document.getElementById('scanId').value;
+            const response = await fetch(`/api/v1/scans/findings/${scanId}`);
+            const result = await response.json();
+            document.getElementById('findingsResult').innerText = JSON.stringify(result, null, 2);
+        }
+
+        async function generateReport() {
+            const scanId = document.getElementById('reportScanId').value;
+            const response = await fetch(`/api/v1/reports/generate-report/${scanId}`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            document.getElementById('reportResult').innerText = JSON.stringify(result, null, 2);
+        }
+    </script>
+</body>
+</html>

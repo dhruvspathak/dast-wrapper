@@ -1,12 +1,19 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from typing import List
 import yaml
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from app.schemas.application import ApplicationConfig
 from app.services.scan_service import ScanService
+from app.db.base import get_db
+from app.models.application import Application
 
 router = APIRouter()
 scan_service = ScanService()
+
+class StartScanRequest(BaseModel):
+    config_id: str
 
 @router.post("/upload-config")
 async def upload_config(file: UploadFile = File(...)):
@@ -17,15 +24,26 @@ async def upload_config(file: UploadFile = File(...)):
     try:
         config_data = yaml.safe_load(content)
         config = ApplicationConfig(**config_data)
-        # Save config or process
-        return {"message": "Config uploaded successfully", "config": config.dict()}
+        
+        # Save to database
+        async with get_db() as session:
+            app = Application(
+                name=config.application.name,
+                base_url=config.application.base_url,
+                config=config_data
+            )
+            session.add(app)
+            await session.commit()
+            await session.refresh(app)
+        
+        return {"message": "Config uploaded successfully", "config_id": app.id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid config: {str(e)}")
 
 @router.post("/start-scan")
-async def start_scan(config_id: str):
+async def start_scan(request: StartScanRequest):
     # Start scan job
-    job_id = await scan_service.start_scan(config_id)
+    job_id = await scan_service.start_scan(request.config_id)
     return {"job_id": job_id}
 
 @router.get("/scan-status/{job_id}")

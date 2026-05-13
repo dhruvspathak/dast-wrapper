@@ -24,45 +24,46 @@ This platform orchestrates, automates, validates, replays, and triages security 
 - Docker & Docker Compose
 - OWASP ZAP (optional, can run in container)
 
-### Installation
+### Setup
 
-1. Clone the repository:
-```bash
-git clone <repo-url>
-cd dast-wrapper-local
-```
-
-2. Create virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
+1. Install dependencies:
 ```bash
 pip install -e .
 ```
 
-4. Set up environment:
+2. Create database tables:
 ```bash
-cp .env.example .env
-# Edit .env with your settings
+python create_tables.py
 ```
 
-5. Start services:
+3. Start services:
 ```bash
 docker-compose up -d postgres redis zap
 ```
 
-6. Run migrations:
+4. Start Celery worker:
 ```bash
-alembic upgrade head
+celery -A app.workers.celery_app worker --loglevel=info
 ```
 
-7. Start the application:
+5. Start the application:
 ```bash
 uvicorn app.api.main:app --reload
 ```
+
+### Usage Flow
+
+1. **Upload Configuration**: POST `/api/v1/scans/upload-config` with YAML file
+2. **Authenticate**: POST `/api/v1/auth/authenticate` with config_id and role
+3. **Start Scan**: POST `/api/v1/scans/start-scan` with config_id
+4. **Monitor Progress**: GET `/api/v1/scans/scan-status/{job_id}`
+5. **Get Findings**: GET `/api/v1/scans/findings/{scan_id}`
+6. **Generate Report**: POST `/api/v1/reports/generate-report/{scan_id}`
+7. **View Report**: GET `/api/v1/reports/report/{report_id}/download`
+
+### Web Dashboard
+
+Visit `http://localhost:8000/` for a simple web interface to interact with the API.
 
 ### Usage
 
