@@ -1,35 +1,32 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS runtime
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    wget \
-    build-essential \
-    libpq-dev \
-    gcc \
+    libpq5 \
+    netcat-traditional \
     && rm -rf /var/lib/apt/lists/*
 
-# upgrade tooling
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel hatchling
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
 
-# COPY FIRST (needed for pyproject)
-COPY . .
+COPY pyproject.toml README.md ./
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./
 
-# install python dependencies FIRST (this provides playwright CLI)
-RUN pip install --no-cache-dir -e .
+RUN pip install --upgrade pip setuptools wheel hatchling \
+    && pip install -e .
 
-# NOW playwright CLI exists → safe to run
-RUN python -m playwright install --with-deps chromium
-
-# create user
-RUN useradd --create-home --shell /bin/bash appuser && \
-    chown -R appuser:appuser /app
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh && chown -R appuser:appuser /app
 
 USER appuser
 
 EXPOSE 8000
-
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

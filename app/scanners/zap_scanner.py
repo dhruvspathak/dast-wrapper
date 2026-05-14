@@ -5,10 +5,13 @@ import logging
 from requests.exceptions import RequestException
 
 from app.core.config import settings
+from app.scanners.base import ScannerFinding, ScannerPlugin, ScanTarget
 
 logger = logging.getLogger(__name__)
 
-class ZAPScanner:
+class ZAPScanner(ScannerPlugin):
+    name = "zap"
+
     def __init__(self, api_url: str | None = None):
         self.api_url = api_url or settings.zap_api_url
         self.zap = zapv2.ZAPv2(
@@ -33,7 +36,13 @@ class ZAPScanner:
             f"ZAP API is not ready at {self.api_url}: {last_error}"
         )
 
-    def start_scan(self, target_url: str, auth_headers: Dict[str, str] = None) -> str:
+    def start_scan(self, target: ScanTarget | str, auth_headers: Dict[str, str] = None) -> str:
+        if isinstance(target, ScanTarget):
+            target_url = target.url
+            auth_headers = target.auth_headers
+        else:
+            target_url = target
+
         self.wait_until_ready()
 
         # Set target
@@ -71,26 +80,30 @@ class ZAPScanner:
 
         return scan_id
 
-    def get_scan_status(self, scan_id: str) -> int:
+    def get_status(self, scan_id: str) -> int:
         return int(self.zap.ascan.status(scan_id))
 
-    def get_findings(self, scan_id: str) -> List[Dict[str, Any]]:
+    def get_scan_status(self, scan_id: str) -> int:
+        return self.get_status(scan_id)
+
+    def get_findings(self, scan_id: str) -> List[ScannerFinding]:
         # Get alerts
         alerts = self.zap.core.alerts()
 
         findings = []
         for alert in alerts:
-            findings.append({
-                'id': alert.get('id'),
-                'title': alert.get('alert'),
-                'description': alert.get('description'),
-                'severity': alert.get('risk'),
-                'url': alert.get('url'),
-                'cwe': alert.get('cweid'),
-                'solution': alert.get('solution'),
-                'request': alert.get('request'),
-                'response': alert.get('response')
-            })
+            findings.append(
+                ScannerFinding(
+                    title=alert.get('alert') or '',
+                    description=alert.get('description'),
+                    severity=alert.get('risk') or 'info',
+                    url=alert.get('url'),
+                    cwe=alert.get('cweid'),
+                    request=alert.get('request'),
+                    response=alert.get('response'),
+                    raw=alert,
+                )
+            )
 
         return findings
 

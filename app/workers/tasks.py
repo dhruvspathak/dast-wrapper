@@ -1,5 +1,6 @@
 from app.workers.celery_app import celery_app
-from app.scanners.zap_scanner import ZAPScanner
+from app.scanners.base import ScanTarget
+from app.scanners.registry import scanner_registry
 from app.replay.replay_engine import ReplayEngine
 from app.validators.idor_validator import IDORValidator
 import asyncio
@@ -65,8 +66,8 @@ async def _execute_zap_scan(self, scan_id):
     # For now, no auth headers - this would come from auth sessions
     auth_headers = {}
     
-    scanner = ZAPScanner()
-    scan_id_zap = scanner.start_scan(target_url, auth_headers)
+    scanner = scanner_registry.create(scan.scanner)
+    scan_id_zap = scanner.start_scan(ScanTarget(url=target_url, auth_headers=auth_headers))
     
     self.update_state(state='PROGRESS', meta={'progress': 'Scan in progress'})
 
@@ -83,14 +84,14 @@ async def _execute_zap_scan(self, scan_id):
         for finding_data in findings:
             finding = Finding(
                 scan_id=scan_id,
-                title=finding_data.get('title') or '',
-                description=finding_data.get('description'),
-                severity=finding_data.get('severity') or 'info',
-                url=finding_data.get('url'),
-                cwe=finding_data.get('cwe'),
-                owasp=finding_data.get('owasp'),
-                request=finding_data.get('request'),
-                response=finding_data.get('response')
+                title=finding_data.title,
+                description=finding_data.description,
+                severity=finding_data.severity,
+                url=finding_data.url,
+                cwe=finding_data.cwe,
+                owasp=finding_data.owasp,
+                request=finding_data.request,
+                response=finding_data.response,
             )
             session.add(finding)
     
@@ -114,7 +115,7 @@ def _wait_for_zap_scan(scanner, zap_scan_id, target_url, task):
             )
 
         try:
-            progress = scanner.get_scan_status(zap_scan_id)
+            progress = scanner.get_status(zap_scan_id)
             consecutive_errors = 0
             last_progress = progress
         except Exception as exc:

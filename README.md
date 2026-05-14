@@ -1,111 +1,90 @@
-# DAST Wrapper Platform
+# DAST Orchestration Platform
 
-Application Security Orchestration & Validation Platform
+Enterprise Application Security Orchestration and Validation Platform built with FastAPI, Celery, Redis, PostgreSQL, OWASP ZAP, Playwright, Docker Compose, and Nginx.
 
-## Overview
+## Deployment Architecture
 
-This platform orchestrates, automates, validates, replays, and triages security findings from tools like OWASP ZAP, Burp Suite, Checkmarx DAST, nuclei, sqlmap, and browser automation frameworks.
+```text
+Internet
+  -> Nginx
+  -> FastAPI API Layer
+  -> Redis Queue + Celery Workers
+  -> Replay Engine / Validation Engine
+  -> Scanner Containers
+  -> Playwright Browser Containers
+```
 
-## Features
+## Repository Layout
 
-- **Context-driven onboarding** with YAML configuration
-- **Playwright-based authentication** for enterprise applications
-- **ZAP orchestration** with authenticated scanning
-- **Replay engine** for finding validation
-- **IDOR/BOLA validator** for authorization testing
-- **AI-assisted triage** (Phase 2)
-- **HTML reporting** with evidence and remediation
+```text
+app/
+  api/         FastAPI routes and bootstrap
+  core/        config, logging, middleware
+  auth/        Playwright authentication/session helpers
+  scanners/    scanner plugin contracts and implementations
+  replay/      replay engine
+  validators/  authorization and business logic validators
+  ai/          AI-assisted triage layer
+  reporting/   report generation
+  workers/     Celery app and tasks
+  db/          async SQLAlchemy setup
+  models/      database models
+  schemas/     Pydantic schemas
+  utils/       security helpers
+docker/        container entrypoints and scanner/browser images
+nginx/         reverse proxy config
+infra/         Terraform for EC2 deployment
+configs/       scan configuration inputs
+reports/       generated reports
+docs/          architecture and deployment notes
+tests/         test suite
+```
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.12+
-- Docker & Docker Compose
-- OWASP ZAP (optional, can run in container)
-
-### Setup
-
-1. Install dependencies:
 ```bash
-pip install -e .
+cp .env.example .env
+docker compose up -d
 ```
 
-2. Create database tables:
+The only public service is Nginx:
+
+- API docs: `http://localhost/docs`
+- Liveness: `http://localhost/health/live`
+- Readiness: `http://localhost/health/ready`
+
+Redis, Postgres, ZAP, and Playwright are internal-only container services.
+
+## Core APIs
+
+- Upload config: `POST /api/v1/scans/upload-config`
+- Start scan: `POST /api/v1/scans/start-scan`
+- Check scan: `GET /api/v1/scans/scan-status/{job_id}`
+- Findings: `GET /api/v1/scans/findings/{scan_id}`
+- Generate report: `POST /api/v1/reports/generate-report/{scan_id}`
+
+## Operations
+
+Deploy on Ubuntu Server 24.04 LTS:
+
 ```bash
-python create_tables.py
+./scripts/bootstrap-ubuntu.sh
+./scripts/deploy.sh
 ```
 
-3. Start services:
-```bash
-docker-compose up -d postgres redis zap
-```
-
-4. Start Celery worker:
-```bash
-celery -A app.workers.celery_app worker --loglevel=info
-```
-
-5. Start the application:
-```bash
-uvicorn app.api.main:app --reload
-```
-
-### Usage Flow
-
-1. **Upload Configuration**: POST `/api/v1/scans/upload-config` with YAML file
-2. **Authenticate**: POST `/api/v1/auth/authenticate` with config_id and role
-3. **Start Scan**: POST `/api/v1/scans/start-scan` with config_id
-4. **Monitor Progress**: GET `/api/v1/scans/scan-status/{job_id}`
-5. **Get Findings**: GET `/api/v1/scans/findings/{scan_id}`
-6. **Generate Report**: POST `/api/v1/reports/generate-report/{scan_id}`
-7. **View Report**: GET `/api/v1/reports/report/{report_id}/download`
-
-### Web Dashboard
-
-Visit `http://localhost:8000/` for a simple web interface to interact with the API.
-
-### Usage
-
-1. Upload a YAML configuration file via `/api/v1/scans/upload-config`
-2. Authenticate using Playwright via `/api/v1/auth/authenticate`
-3. Start a scan via `/api/v1/scans/start-scan`
-4. Monitor progress and get findings
-5. Generate reports via `/api/v1/reports/generate-report`
-
-### Sample Configuration
-
-See `configs/sample.yaml` for an example application configuration.
-
-## Architecture
-
-- **Backend**: FastAPI with async SQLAlchemy
-- **Jobs**: Celery with Redis
-- **Database**: PostgreSQL
-- **Browser Automation**: Playwright
-- **Scanning**: ZAP API, nuclei, sqlmap
-- **Reporting**: Jinja2 templates
+Terraform for AWS EC2 lives in `infra/terraform`. See [docs/deployment.md](docs/deployment.md).
 
 ## Development
 
-### Running Tests
-
 ```bash
+pip install -e .[dev]
 pytest
+python -m compileall app
 ```
 
-### Code Quality
+## Security Notes
 
-```bash
-black .
-isort .
-mypy .
-```
-
-## API Documentation
-
-Once running, visit `http://localhost:8000/docs` for interactive API docs.
-
-## License
-
-[License information]
+- Production secrets belong in `.env` or your secret manager, never in Git.
+- Logs are JSON structured and redact token-like fields.
+- Scanner and browser containers are isolated on an internal Docker network.
+- AI triage is an augmentation layer and is not required for scan orchestration.

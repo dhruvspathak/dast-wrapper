@@ -3,9 +3,12 @@ from typing import Dict, Any, List, Optional
 import asyncio
 import time
 import difflib
+from app.core.config import settings
 
 class ReplayEngine:
-    def __init__(self, timeout: int = 30):
+    _semaphore = asyncio.Semaphore(settings.replay_max_concurrency)
+
+    def __init__(self, timeout: int = settings.replay_timeout_seconds):
         self.timeout = timeout
         self.client = httpx.AsyncClient(timeout=timeout)
 
@@ -26,7 +29,8 @@ class ReplayEngine:
 
         start_time = time.time()
         try:
-            response = await self.client.request(method, url, headers=headers, content=body)
+            async with self._semaphore:
+                response = await self.client.request(method, url, headers=headers, content=body)
             response_time = time.time() - start_time
 
             return {

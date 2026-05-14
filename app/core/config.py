@@ -4,6 +4,10 @@ from typing import Optional
 
 
 class Settings(BaseSettings):
+    app_name: str = Field(default="DAST Orchestration Platform")
+    environment: str = Field(default="development")
+    api_cors_origins: str = Field(default="")
+
     # Database
     database_url: str = Field(default="postgresql+asyncpg://dast_user:dast_password@localhost:5432/dast_wrapper")
 
@@ -13,6 +17,10 @@ class Settings(BaseSettings):
     # Celery
     celery_broker_url: str = Field(default="redis://localhost:6379/0")
     celery_result_backend: str = Field(default="redis://localhost:6379/0")
+    celery_scan_queue: str = Field(default="scan")
+    celery_replay_queue: str = Field(default="replay")
+    celery_validation_queue: str = Field(default="validation")
+    celery_report_queue: str = Field(default="report")
 
     # OpenAI
     openai_api_key: Optional[str] = None
@@ -24,15 +32,26 @@ class Settings(BaseSettings):
     zap_poll_interval_seconds: int = Field(default=5)
     zap_poll_max_errors: int = Field(default=12)
 
+    # Replay validation
+    replay_timeout_seconds: int = Field(default=30)
+    replay_max_concurrency: int = Field(default=4)
+
     # Security
     secret_key: str = Field(default="your-secret-key-here")
 
     # Logging
     log_level: str = Field(default="INFO")
 
+    @property
+    def cors_origins(self) -> list[str]:
+        if not self.api_cors_origins:
+            return []
+        return [origin.strip() for origin in self.api_cors_origins.split(",") if origin.strip()]
+
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 
 settings = Settings()
