@@ -5,10 +5,12 @@ from app.schemas.canonical import Finding, ValidationResult, ReplayResult
 
 class AITriageEngine:
     def __init__(self):
-        self.client = OpenAI(
-            api_key=settings.openai_api_key,
-            base_url=settings.openai_base_url
-        )
+        self.client = None
+        if settings.openai_api_key:
+            self.client = OpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url,
+            )
 
     async def triage_finding(
         self,
@@ -50,7 +52,7 @@ exploitability_reasoning
 confidence: 0.0 to 1.0
 """
 
-        if not settings.openai_api_key:
+        if not self.client:
             return self._deterministic_fallback(finding_payload, validation_payload)
 
         response = self.client.chat.completions.create(

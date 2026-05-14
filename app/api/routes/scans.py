@@ -18,12 +18,14 @@ class StartScanRequest(BaseModel):
 
 @router.post("/upload-config")
 async def upload_config(file: UploadFile = File(...)):
-    if not file.filename.endswith('.yaml'):
-        raise HTTPException(status_code=400, detail="Only YAML files are allowed")
+    if not file.filename or not file.filename.lower().endswith((".yaml", ".yml")):
+        raise HTTPException(status_code=400, detail="Only YAML config files are allowed")
     
     content = await file.read()
     try:
         config_data = yaml.safe_load(content)
+        if not isinstance(config_data, dict):
+            raise ValueError("YAML document must contain an application configuration object")
         config = ApplicationConfig(**config_data)
         
         # Save to database
@@ -46,6 +48,8 @@ async def start_scan(request: StartScanRequest):
     # Start scan job
     try:
         return await scan_service.start_scan(request.config_id, request.workspace_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 

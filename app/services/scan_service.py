@@ -51,14 +51,27 @@ class ScanService:
     async def get_scan_status(self, job_id: str) -> Dict[str, Any]:
         # Check Celery task status
         result = celery_app.AsyncResult(job_id)
+        async with get_db() as session:
+            scan_result = await session.execute(select(Scan).where(Scan.celery_task_id == job_id))
+            scan = scan_result.scalar_one_or_none()
+            scan_payload = None
+            if scan:
+                scan_payload = {
+                    "scan_id": scan.id,
+                    "status": scan.status,
+                    "scanner": scan.scanner,
+                    "started_at": scan.started_at.isoformat() if scan.started_at else None,
+                    "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+                    "target": (scan.config or {}).get("target"),
+                }
         if result.state == 'PENDING':
-            return {"status": "pending"}
+            return {"status": scan_payload["status"] if scan_payload else "pending", "scan": scan_payload}
         elif result.state == 'PROGRESS':
-            return {"status": "running", "progress": result.info}
+            return {"status": "running", "progress": result.info, "scan": scan_payload}
         elif result.state == 'SUCCESS':
-            return {"status": "completed", "result": result.result}
+            return {"status": "completed", "result": result.result, "scan": scan_payload}
         else:
-            return {"status": "failed", "error": str(result.info)}
+            return {"status": "failed", "error": str(result.info), "scan": scan_payload}
 
     async def get_findings(self, scan_id: str) -> List[Dict[str, Any]]:
         async with get_db() as session:
