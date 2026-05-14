@@ -1,17 +1,17 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from app.auth.context_manager import AuthContextManager
 from app.auth.playwright_auth import PlaywrightAuthEngine
 from app.db.base import get_db
-from app.models.auth_session import AuthSession
 from app.models.application import Application
 from sqlalchemy import select
-import asyncio
 
 router = APIRouter()
 
 class AuthenticateRequest(BaseModel):
     config_id: str
     role: str
+    workspace_id: str = "default"
 
 @router.post("/authenticate")
 async def authenticate(request: AuthenticateRequest):
@@ -35,17 +35,21 @@ async def authenticate(request: AuthenticateRequest):
     login_url = auth_config.get('login_url')
     
     # Authenticate using Playwright
-    async with PlaywrightAuthEngine() as auth_engine:
-        auth_data = await auth_engine.authenticate(login_url, user['username'], user['password'])
+    async with PlaywrightAuthEngine(
+        workspace_id=request.workspace_id,
+        application_id=request.config_id,
+        role=request.role,
+    ) as auth_engine:
+        auth_context = await auth_engine.authenticate(
+            login_url,
+            user['username'],
+            user['password'],
+        )
     
     # Save session
     async with get_db() as session:
-        session_obj = AuthSession(
-            application_id=request.config_id,
-            role=request.role,
-            tokens=auth_data
-        )
-        session.add(session_obj)
+        manager = AuthContextManager(session)
+        session_obj = await manager.save_context(auth_context)
         await session.commit()
         await session.refresh(session_obj)
     

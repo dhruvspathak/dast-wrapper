@@ -6,7 +6,14 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-docker compose pull
+./scripts/validate-env.sh
+
+previous_revision="$(git rev-parse --short HEAD || true)"
+echo "Deploying revision ${previous_revision}"
+
 docker compose build
-docker compose up -d
+docker compose up -d --remove-orphans
+docker compose run --rm api alembic upgrade head
 docker compose ps
+
+echo "Rollback placeholder: git checkout <previous-known-good> && docker compose up -d --build"

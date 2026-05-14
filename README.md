@@ -52,6 +52,7 @@ The only public service is Nginx:
 - API docs: `http://localhost/docs`
 - Liveness: `http://localhost/health/live`
 - Readiness: `http://localhost/health/ready`
+- Deep health: `http://localhost/health/deep`
 
 Redis, Postgres, ZAP, and Playwright are internal-only container services.
 
@@ -59,6 +60,7 @@ Redis, Postgres, ZAP, and Playwright are internal-only container services.
 
 - Upload config: `POST /api/v1/scans/upload-config`
 - Start scan: `POST /api/v1/scans/start-scan`
+- Cancel scan: `POST /api/v1/scans/cancel/{scan_id}`
 - Check scan: `GET /api/v1/scans/scan-status/{job_id}`
 - Findings: `GET /api/v1/scans/findings/{scan_id}`
 - Generate report: `POST /api/v1/reports/generate-report/{scan_id}`
@@ -88,3 +90,4 @@ python -m compileall app
 - Logs are JSON structured and redact token-like fields.
 - Scanner and browser containers are isolated on an internal Docker network.
 - AI triage is an augmentation layer and is not required for scan orchestration.
+- The required validation flow is scanner -> normalized finding -> replay validation -> authorization validation -> AI reasoning -> reporting.

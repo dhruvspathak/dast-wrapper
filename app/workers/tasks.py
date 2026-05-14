@@ -12,6 +12,7 @@ from app.core.config import settings
 from sqlalchemy import select, update
 import time
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,12 @@ def run_zap_scan(self, scan_id):
 async def _run_zap_scan_async(self, scan_id):
     try:
         return await _execute_zap_scan(self, scan_id)
-    except Exception:
+    except Exception as exc:
         try:
+            status = "cancelled" if "cancellation requested" in str(exc).lower() else "failed"
             async with get_db() as session:
                 await session.execute(
-                    update(Scan).where(Scan.id == scan_id).values(status='failed')
+                    update(Scan).where(Scan.id == scan_id).values(status=status, completed_at=datetime.utcnow())
                 )
         except Exception:
             logger.exception("Failed to mark scan %s as failed", scan_id)
@@ -56,7 +58,7 @@ async def _execute_zap_scan(self, scan_id):
         
         # Update scan status to running
         await session.execute(
-            update(Scan).where(Scan.id == scan_id).values(status='running')
+            update(Scan).where(Scan.id == scan_id).values(status='running', started_at=datetime.utcnow())
         )
     
     # Extract config
@@ -68,10 +70,14 @@ async def _execute_zap_scan(self, scan_id):
     
     scanner = scanner_registry.create(scan.scanner)
     scan_id_zap = scanner.start_scan(ScanTarget(url=target_url, auth_headers=auth_headers))
+    async with get_db() as session:
+        await session.execute(
+            update(Scan).where(Scan.id == scan_id).values(scanner_scan_id=scan_id_zap)
+        )
     
     self.update_state(state='PROGRESS', meta={'progress': 'Scan in progress'})
 
-    progress = _wait_for_zap_scan(scanner, scan_id_zap, target_url, self)
+    progress = await _wait_for_zap_scan(scanner, scan_id_zap, target_url, self, scan_id)
     self.update_state(
         state='PROGRESS',
         meta={'progress': f'Scan {progress}% complete, collecting findings'},
@@ -82,26 +88,37 @@ async def _execute_zap_scan(self, scan_id):
     # Save findings to DB
     async with get_db() as session:
         for finding_data in findings:
-            finding = Finding(
+            canonical = scanner.normalize_finding(
                 scan_id=scan_id,
-                title=finding_data.title,
-                description=finding_data.description,
-                severity=finding_data.severity,
-                url=finding_data.url,
-                cwe=finding_data.cwe,
-                owasp=finding_data.owasp,
-                request=finding_data.request,
-                response=finding_data.response,
+                finding=finding_data,
+                workspace_id=scan.workspace_id,
+            )
+            finding = Finding(
+                workspace_id=canonical.workspace_id,
+                scan_id=scan_id,
+                scanner=canonical.scanner,
+                scanner_finding_id=canonical.scanner_finding_id,
+                fingerprint=canonical.fingerprint,
+                title=canonical.title,
+                description=canonical.description,
+                severity=canonical.severity,
+                url=canonical.url,
+                cwe=canonical.cwe,
+                owasp=canonical.owasp,
+                request=canonical.request.model_dump(mode="json") if canonical.request else None,
+                response=canonical.response.model_dump(mode="json") if canonical.response else None,
+                evidence=canonical.evidence,
+                raw=canonical.raw,
             )
             session.add(finding)
     
         await session.execute(
-            update(Scan).where(Scan.id == scan_id).values(status='completed')
+            update(Scan).where(Scan.id == scan_id).values(status='completed', completed_at=datetime.utcnow())
         )
     
     return {'findings': len(findings)}
 
-def _wait_for_zap_scan(scanner, zap_scan_id, target_url, task):
+async def _wait_for_zap_scan(scanner, zap_scan_id, target_url, task, scan_id):
     started_at = time.monotonic()
     consecutive_errors = 0
     last_progress = 0
@@ -115,6 +132,8 @@ def _wait_for_zap_scan(scanner, zap_scan_id, target_url, task):
             )
 
         try:
+            if await _scan_cancelled(scan_id):
+                raise RuntimeError("Scan cancellation requested")
             progress = scanner.get_status(zap_scan_id)
             consecutive_errors = 0
             last_progress = progress
@@ -142,7 +161,7 @@ def _wait_for_zap_scan(scanner, zap_scan_id, target_url, task):
                     )
                 },
             )
-            time.sleep(settings.zap_poll_interval_seconds)
+            await asyncio.sleep(settings.zap_poll_interval_seconds)
             continue
 
         if progress >= 100:
@@ -152,12 +171,12 @@ def _wait_for_zap_scan(scanner, zap_scan_id, target_url, task):
             state='PROGRESS',
             meta={'progress': f'Scan {progress}% complete'},
         )
-        time.sleep(settings.zap_poll_interval_seconds)
+        await asyncio.sleep(settings.zap_poll_interval_seconds)
 
 @celery_app.task
 def replay_finding(request_data: dict, auth_headers: dict = None):
     async def _replay():
-        async with ReplayEngine() as engine:
+        async with ReplayEngine(allowed_hosts=settings.allowed_replay_hosts) as engine:
             return await engine.replay_request(request_data, auth_headers)
     
     return asyncio.run(_replay())
@@ -165,8 +184,16 @@ def replay_finding(request_data: dict, auth_headers: dict = None):
 @celery_app.task
 def validate_idor(request: dict, identifiers: list, auth_sessions: dict):
     async def _validate():
-        async with ReplayEngine() as engine:
+        async with ReplayEngine(allowed_hosts=settings.allowed_replay_hosts) as engine:
             validator = IDORValidator(engine)
             return await validator.validate_idor(request, identifiers, auth_sessions)
     
     return asyncio.run(_validate())
+
+
+async def _scan_cancelled(scan_id: str | None) -> bool:
+    if not scan_id:
+        return False
+    async with get_db() as session:
+        result = await session.execute(select(Scan.status).where(Scan.id == scan_id))
+        return result.scalar_one_or_none() in {"cancelling", "cancelled"}

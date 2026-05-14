@@ -15,6 +15,10 @@ services:
     networks:
       - frontend
     mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
 
   api:
     build:
@@ -50,7 +54,14 @@ services:
     networks:
       - frontend
       - backend
+      - scanner
     mem_limit: 768m
+    cpus: 1.00
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
 
   worker:
     build:
@@ -94,6 +105,18 @@ services:
       - scanner
       - egress
     mem_limit: 1536m
+    cpus: 1.50
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$(hostname) --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   postgres:
     image: postgres:16-alpine
@@ -113,6 +136,10 @@ services:
     networks:
       - backend
     mem_limit: 768m
+    cpus: 1.00
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
 
   redis:
     image: redis:7-alpine
@@ -129,6 +156,10 @@ services:
     networks:
       - backend
     mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
 
   zap:
     build:
@@ -152,6 +183,10 @@ services:
       - scanner
       - egress
     mem_limit: 2048m
+    cpus: 2.00
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
 
   playwright:
     build:
@@ -173,6 +208,11 @@ services:
       - scanner
       - egress
     mem_limit: 1024m
+    cpus: 1.00
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 512m
 
 networks:
   frontend:

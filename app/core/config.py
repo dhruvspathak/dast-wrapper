@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     celery_replay_queue: str = Field(default="replay")
     celery_validation_queue: str = Field(default="validation")
     celery_report_queue: str = Field(default="report")
+    celery_worker_concurrency: int = Field(default=2)
+    celery_task_time_limit_seconds: int = Field(default=3600)
+    celery_task_soft_time_limit_seconds: int = Field(default=3300)
+    max_active_scans: int = Field(default=3)
 
     # OpenAI
     openai_api_key: Optional[str] = None
@@ -35,9 +39,12 @@ class Settings(BaseSettings):
     # Replay validation
     replay_timeout_seconds: int = Field(default=30)
     replay_max_concurrency: int = Field(default=4)
+    replay_allowed_hosts: str = Field(default="")
+    replay_rate_limit_per_second: float = Field(default=2.0)
 
     # Security
     secret_key: str = Field(default="your-secret-key-here")
+    default_workspace_id: str = Field(default="default")
 
     # Logging
     log_level: str = Field(default="INFO")
@@ -47,6 +54,12 @@ class Settings(BaseSettings):
         if not self.api_cors_origins:
             return []
         return [origin.strip() for origin in self.api_cors_origins.split(",") if origin.strip()]
+
+    @property
+    def allowed_replay_hosts(self) -> set[str]:
+        if not self.replay_allowed_hosts:
+            return set()
+        return {host.strip() for host in self.replay_allowed_hosts.split(",") if host.strip()}
 
     class Config:
         env_file = ".env"

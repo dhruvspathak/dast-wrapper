@@ -1,4 +1,4 @@
-from sqlalchemy import String, Text, JSON
+from sqlalchemy import String, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 import uuid
@@ -8,6 +8,7 @@ class Application(Base):
     __tablename__ = "applications"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), default="default", index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     config: Mapped[dict] = mapped_column(JSON, nullable=False)

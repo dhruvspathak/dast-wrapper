@@ -9,7 +9,13 @@ async def browser_context(storage_state_path: str | None = None) -> AsyncIterato
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(
             headless=True,
-            args=["--disable-dev-shm-usage", "--no-sandbox"],
+            args=[
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-extensions",
+            ],
         )
         state_path = Path(storage_state_path) if storage_state_path else None
         context = await browser.new_context(

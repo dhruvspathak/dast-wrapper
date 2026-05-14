@@ -20,7 +20,11 @@ celery_app.conf.update(
     task_default_queue=settings.celery_scan_queue,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
+    task_time_limit=settings.celery_task_time_limit_seconds,
+    task_soft_time_limit=settings.celery_task_soft_time_limit_seconds,
     worker_prefetch_multiplier=1,
+    worker_max_tasks_per_child=10,
+    worker_max_memory_per_child=512000,
     broker_connection_retry_on_startup=True,
     task_queues=(
         Queue(settings.celery_scan_queue, Exchange("dast"), routing_key="scan.#"),

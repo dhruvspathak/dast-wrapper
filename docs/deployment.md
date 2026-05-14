@@ -66,13 +66,40 @@ docker compose up -d
 ```bash
 curl http://localhost/health/live
 curl http://localhost/health/ready
+curl http://localhost/health/deep
 ```
 
-## 6. Operational Notes
+`scripts/healthcheck.sh` runs the deployment health gate used by CI/CD.
+
+## 6. GitHub Actions Deployment
+
+`.github/workflows/deploy.yml` deploys pushes to `main` to one Ubuntu 24.04 EC2 host over SSH.
+
+Required repository or environment secrets:
+
+- `EC2_HOST`
+- `EC2_USER`
+- `EC2_SSH_KEY`
+- `EC2_APP_DIR`
+- optional `EC2_SSH_PORT`
+
+The workflow:
+
+1. SSHes into the EC2 instance.
+2. Fetches and fast-forwards `main`.
+3. Validates `.env`.
+4. Rebuilds Docker Compose services.
+5. Runs Alembic migrations.
+6. Runs deep health checks.
+7. Fails deployment when health checks fail.
+
+## 7. Operational Notes
 
 - Public access is through Nginx only.
 - Redis, Postgres, ZAP, and Playwright are internal-only Compose services.
 - ZAP scans can be long-running. Tune `ZAP_SCAN_TIMEOUT_SECONDS`, `ZAP_POLL_INTERVAL_SECONDS`, and `ZAP_POLL_MAX_ERRORS`.
+- Tune `MAX_ACTIVE_SCANS`, `WORKER_CONCURRENCY`, `CELERY_TASK_TIME_LIMIT_SECONDS`, and container memory limits together.
+- Set `REPLAY_ALLOWED_HOSTS` in production to prevent out-of-scope replay.
 - Scale workers on the single node with:
 
 ```bash
@@ -80,3 +107,13 @@ docker compose up -d --scale worker=2
 ```
 
 Keep EC2 memory limits in mind when scaling workers and ZAP.
+
+## Troubleshooting
+
+- `docker compose ps`: service state and health.
+- `docker compose logs --tail=200 api worker`: API and worker failures.
+- `curl http://localhost/health/deep`: dependency and queue status.
+- `docker compose exec redis redis-cli llen scan`: scan queue depth.
+- `docker compose exec postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"`: database readiness.
+- Check ZAP memory with container stats when scans stall.
+- Check Playwright storage volume if role sessions appear contaminated.

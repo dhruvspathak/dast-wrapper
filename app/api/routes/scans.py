@@ -14,6 +14,7 @@ scan_service = ScanService()
 
 class StartScanRequest(BaseModel):
     config_id: str
+    workspace_id: str = "default"
 
 @router.post("/upload-config")
 async def upload_config(file: UploadFile = File(...)):
@@ -43,8 +44,14 @@ async def upload_config(file: UploadFile = File(...)):
 @router.post("/start-scan")
 async def start_scan(request: StartScanRequest):
     # Start scan job
-    job_id = await scan_service.start_scan(request.config_id)
-    return {"job_id": job_id}
+    try:
+        return await scan_service.start_scan(request.config_id, request.workspace_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+@router.post("/cancel/{scan_id}")
+async def cancel_scan(scan_id: str, workspace_id: str = "default"):
+    return await scan_service.cancel_scan(scan_id, workspace_id)
 
 @router.get("/scan-status/{job_id}")
 async def get_scan_status(job_id: str):

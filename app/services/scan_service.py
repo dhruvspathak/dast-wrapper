@@ -3,14 +3,16 @@ from app.db.base import get_db
 from app.models.scan import Scan
 from app.models.finding import Finding
 from app.models.application import Application
-from sqlalchemy import select
+from app.services.governance import ResourceGovernance
+from sqlalchemy import select, update
 from app.workers.celery_app import celery_app
 from app.workers.tasks import run_zap_scan
 
 class ScanService:
-    async def start_scan(self, config_id: str) -> str:
+    async def start_scan(self, config_id: str, workspace_id: str = "default") -> dict[str, str]:
         # Get application config
         async with get_db() as session:
+            await ResourceGovernance(session).ensure_scan_capacity(workspace_id)
             app_result = await session.execute(
                 select(Application).where(Application.id == config_id)
             )
@@ -20,9 +22,10 @@ class ScanService:
             
             # Create scan record with actual target
             scan = Scan(
+                workspace_id=workspace_id,
                 application_id=config_id,
                 scanner="zap",
-                config={"target": app.base_url}
+                config={"target": app.base_url},
             )
             session.add(scan)
             await session.commit()
@@ -30,7 +33,20 @@ class ScanService:
         
         # Start Celery task
         task = run_zap_scan.delay(scan.id)
-        return task.id
+        async with get_db() as session:
+            await session.execute(
+                update(Scan).where(Scan.id == scan.id).values(celery_task_id=task.id)
+            )
+        return {"job_id": task.id, "scan_id": scan.id}
+
+    async def cancel_scan(self, scan_id: str, workspace_id: str = "default") -> dict[str, str]:
+        async with get_db() as session:
+            await ResourceGovernance(session).request_cancellation(scan_id, workspace_id)
+            result = await session.execute(select(Scan.celery_task_id).where(Scan.id == scan_id))
+            celery_task_id = result.scalar_one_or_none()
+            if celery_task_id:
+                celery_app.control.revoke(celery_task_id, terminate=True)
+        return {"scan_id": scan_id, "status": "cancellation_requested"}
 
     async def get_scan_status(self, job_id: str) -> Dict[str, Any]:
         # Check Celery task status
@@ -50,4 +66,7 @@ class ScanService:
                 select(Finding).where(Finding.scan_id == scan_id)
             )
             findings = result.scalars().all()
-            return [finding.__dict__ for finding in findings]
+            return [
+                {key: value for key, value in finding.__dict__.items() if not key.startswith("_")}
+                for finding in findings
+            ]
