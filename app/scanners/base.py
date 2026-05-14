@@ -11,6 +11,7 @@ from app.schemas.canonical import Finding, RequestData, ResponseData, Severity
 class ScanTarget:
     url: str
     auth_headers: dict[str, str] = field(default_factory=dict)
+    cookies: dict[str, str] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

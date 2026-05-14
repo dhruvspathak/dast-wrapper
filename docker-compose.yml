@@ -40,6 +40,7 @@ services:
     volumes:
       - ./configs:/app/configs
       - ./reports:/app/reports
+      - playwright_state:/browser-state
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +78,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       ZAP_API_URL: http://zap:8080
+      WORKER_CONCURRENCY: 1
     command:
       [
         "celery",
@@ -91,6 +93,7 @@ services:
     volumes:
       - ./configs:/app/configs
       - ./reports:/app/reports
+      - playwright_state:/browser-state
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,7 +109,7 @@ services:
       - egress
     mem_limit: 1536m
     cpus: 1.50
-    pids_limit: 512
+    pids_limit: 1024
     security_opt:
       - no-new-privileges:true
     tmpfs:
@@ -182,9 +185,9 @@ services:
     networks:
       - scanner
       - egress
-    mem_limit: 2048m
+    mem_limit: 4096m
     cpus: 2.00
-    pids_limit: 512
+    pids_limit: 1024
     security_opt:
       - no-new-privileges:true
 
@@ -209,7 +212,7 @@ services:
       - egress
     mem_limit: 1024m
     cpus: 1.00
-    pids_limit: 512
+    pids_limit: 1024
     security_opt:
       - no-new-privileges:true
     shm_size: 512m

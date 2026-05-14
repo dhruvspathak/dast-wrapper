@@ -3,327 +3,450 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DAST Wrapper Console</title>
+    <title>DAST Platform | Security Orchestration</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            color-scheme: light;
-            --bg: #f6f7f9;
+            --primary: #0f172a;
+            --primary-light: #1e293b;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg: #f8fafc;
             --panel: #ffffff;
-            --ink: #17202a;
-            --muted: #5d6b7a;
-            --line: #d9dee5;
-            --accent: #0b6bcb;
-            --accent-dark: #074f98;
-            --success: #136f3a;
-            --warning: #9a5b00;
-            --danger: #b42318;
-            --radius: 8px;
+            --border: #e2e8f0;
+            --text: #334155;
+            --text-muted: #64748b;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
         }
 
         * { box-sizing: border-box; }
         body {
             margin: 0;
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-family: 'Inter', sans-serif;
             background: var(--bg);
-            color: var(--ink);
+            color: var(--text);
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        aside {
+            width: 260px;
+            background: var(--primary);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            position: fixed;
+            height: 100vh;
+        }
+        aside .logo {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        aside .logo svg { color: var(--accent); }
+        nav { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        nav a {
+            color: #94a3b8;
+            text-decoration: none;
+            padding: 10px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        nav a:hover, nav a.active {
+            background: var(--primary-light);
+            color: white;
+        }
+
+        /* Main Content */
+        main {
+            margin-left: 260px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
         }
         header {
-            background: #ffffff;
-            border-bottom: 1px solid var(--line);
-            padding: 18px 28px;
-        }
-        header h1 {
-            margin: 0;
-            font-size: 22px;
-            font-weight: 700;
-        }
-        header p {
-            margin: 6px 0 0;
-            color: var(--muted);
-            font-size: 14px;
-        }
-        main {
-            max-width: 1180px;
-            margin: 0 auto;
-            padding: 24px;
-            display: grid;
-            gap: 18px;
-        }
-        .status-strip {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-        }
-        .metric, .panel {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-        }
-        .metric {
-            padding: 14px;
-            min-height: 86px;
-        }
-        .metric span {
-            display: block;
-            color: var(--muted);
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: .02em;
-        }
-        .metric strong {
-            display: block;
-            margin-top: 8px;
-            font-size: 18px;
-            word-break: break-word;
-        }
-        .workflow {
-            display: grid;
-            grid-template-columns: 1.1fr .9fr;
-            gap: 18px;
-        }
-        .panel {
-            padding: 18px;
-        }
-        .panel h2 {
-            margin: 0 0 12px;
-            font-size: 16px;
-        }
-        .field-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
-        label {
-            display: grid;
-            gap: 7px;
-            color: var(--muted);
-            font-size: 13px;
-        }
-        input {
-            width: 100%;
-            border: 1px solid var(--line);
-            border-radius: 6px;
-            padding: 10px 11px;
-            font: inherit;
-            color: var(--ink);
-            background: #fff;
-        }
-        input[type="file"] {
-            padding: 8px;
-        }
-        .actions {
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 16px 32px;
             display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 14px;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
-        button, .button-link {
-            border: 1px solid transparent;
-            border-radius: 6px;
+        header h2 { margin: 0; font-size: 18px; font-weight: 600; }
+        .content { padding: 32px; max-width: 1200px; margin: 0 auto; width: 100%; }
+
+        /* Dashboard Grid */
+        .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            margin-bottom: 24px;
+        }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .card-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
+
+        /* Stats */
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        .stat-item {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .stat-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { font-size: 20px; font-weight: 700; color: var(--primary); }
+
+        /* Forms */
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+        input, select {
+            width: 100%;
             padding: 10px 12px;
-            min-height: 40px;
-            font: inherit;
-            font-weight: 650;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            color: var(--text);
+            transition: border-color 0.2s;
+        }
+        input:focus { outline: none; border-color: var(--accent); }
+        .btn-group { display: flex; gap: 12px; margin-top: 24px; }
+        button {
+            padding: 10px 20px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 600;
             cursor: pointer;
-            text-decoration: none;
+            transition: all 0.2s;
+            border: 1px solid transparent;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
         }
-        button.primary {
-            background: var(--accent);
-            color: #fff;
+        button.btn-primary { background: var(--accent); color: white; }
+        button.btn-primary:hover { background: var(--accent-hover); }
+        button.btn-secondary { background: white; border-color: var(--border); color: var(--text); }
+        button.btn-secondary:hover { background: var(--bg); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* Table */
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-muted); }
+        td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
+        .badge {
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
         }
-        button.primary:hover { background: var(--accent-dark); }
-        button.secondary, .button-link {
-            background: #fff;
-            color: var(--ink);
-            border-color: var(--line);
-        }
-        button:disabled {
-            cursor: not-allowed;
-            opacity: .55;
-        }
-        .steps {
-            display: grid;
-            gap: 10px;
-        }
+        .badge-critical { background: #fee2e2; color: #991b1b; }
+        .badge-high { background: #ffedd5; color: #9a3412; }
+        .badge-medium { background: #fef9c3; color: #854d0e; }
+        .badge-low { background: #dcfce7; color: #166534; }
+        .badge-info { background: #f1f5f9; color: #475569; }
+
+        /* Pipeline Steps */
+        .pipeline { display: flex; flex-direction: column; gap: 16px; }
         .step {
-            display: grid;
-            grid-template-columns: 30px 1fr;
-            gap: 10px;
-            align-items: start;
-            padding: 10px;
-            border: 1px solid var(--line);
-            border-radius: 6px;
-            background: #fbfcfd;
+            display: flex;
+            gap: 16px;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: white;
+            position: relative;
         }
-        .step .dot {
+        .step::after {
+            content: '';
+            position: absolute;
+            left: 27px;
+            top: 48px;
+            width: 2px;
+            height: 24px;
+            background: var(--border);
+        }
+        .step:last-child::after { display: none; }
+        .step-icon {
             width: 24px;
             height: 24px;
             border-radius: 50%;
+            background: var(--border);
+            color: var(--text-muted);
             display: grid;
             place-items: center;
             font-size: 12px;
             font-weight: 700;
-            background: #e8edf3;
-            color: var(--muted);
+            z-index: 1;
         }
-        .step.done .dot { background: #dff3e7; color: var(--success); }
-        .step.active .dot { background: #dcecff; color: var(--accent); }
-        .step strong {
-            display: block;
-            font-size: 14px;
-        }
-        .step span {
-            display: block;
-            color: var(--muted);
-            font-size: 13px;
-            margin-top: 3px;
-        }
+        .step.active .step-icon { background: var(--accent); color: white; }
+        .step.completed .step-icon { background: var(--success); color: white; }
+        .step-content h4 { margin: 0; font-size: 14px; font-weight: 600; }
+        .step-content p { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); }
+
+        /* Raw Output */
         pre {
-            margin: 12px 0 0;
-            padding: 12px;
-            max-height: 300px;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: var(--radius-sm);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            max-height: 400px;
             overflow: auto;
-            background: #101820;
-            color: #e6edf3;
-            border-radius: 6px;
-            font-size: 12px;
-            line-height: 1.45;
+            border: 1px solid #1e293b;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 12px;
-            font-size: 13px;
-        }
-        th, td {
-            text-align: left;
-            border-bottom: 1px solid var(--line);
-            padding: 10px 8px;
-            vertical-align: top;
-        }
-        th { color: var(--muted); font-weight: 650; }
-        .badge {
-            display: inline-flex;
-            border-radius: 999px;
-            padding: 3px 8px;
-            font-size: 12px;
-            font-weight: 700;
-            background: #eef2f6;
-        }
-        .badge.high, .badge.critical { color: var(--danger); background: #fee4e2; }
-        .badge.medium { color: var(--warning); background: #fff3d6; }
-        .badge.low { color: var(--success); background: #dff3e7; }
+
         .toast {
-            min-height: 22px;
-            margin-top: 12px;
-            color: var(--muted);
-            font-size: 13px;
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 12px 24px;
+            border-radius: var(--radius-sm);
+            background: white;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+            border-left: 4px solid var(--accent);
+            font-size: 14px;
+            font-weight: 500;
+            display: none;
+            z-index: 100;
         }
-        .toast.error { color: var(--danger); }
-        .toast.success { color: var(--success); }
-        @media (max-width: 880px) {
-            .status-strip, .workflow, .field-grid {
-                grid-template-columns: 1fr;
-            }
-            main { padding: 16px; }
-        }
+        .toast.error { border-left-color: var(--danger); }
+        .toast.success { border-left-color: var(--success); }
+
+        /* Animation */
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .scanning { animation: pulse 2s infinite; color: var(--accent); font-weight: 600; }
     </style>
 </head>
 <body>
-    <header>
-        <h1>DAST Wrapper Console</h1>
-        <p>Upload configuration, launch ZAP, validate replay/auth/IDOR/BOLA evidence, and generate a VAPT report.</p>
-    </header>
+    <aside>
+        <div class="logo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <span>DAST Portal</span>
+        </div>
+        <nav>
+            <a href="#" class="active">Dashboard</a>
+            <a href="#">Applications</a>
+            <a href="#">Scan History</a>
+            <a href="#">Reporting</a>
+            <a href="#">Settings</a>
+        </nav>
+        <div style="font-size: 11px; color: #64748b; margin-top: auto;">v0.1.0-alpha</div>
+    </aside>
 
     <main>
-        <section class="status-strip" aria-label="Scan summary">
-            <div class="metric"><span>Config</span><strong id="metricConfig">Not uploaded</strong></div>
-            <div class="metric"><span>Scan</span><strong id="metricScan">Not started</strong></div>
-            <div class="metric"><span>Status</span><strong id="metricStatus">Idle</strong></div>
-            <div class="metric"><span>Findings</span><strong id="metricFindings">0</strong></div>
-        </section>
-
-        <section class="workflow">
-            <div class="panel">
-                <h2>Run A VAPT Scan</h2>
-                <div class="field-grid">
-                    <label>Configuration YAML
-                        <input type="file" id="configFile" accept=".yaml,.yml">
-                    </label>
-                    <label>Workspace
-                        <input type="text" id="workspaceId" value="default">
-                    </label>
-                    <label>Config ID
-                        <input type="text" id="configId" placeholder="Filled after upload">
-                    </label>
-                    <label>Scan ID
-                        <input type="text" id="scanId" placeholder="Filled after start">
-                    </label>
-                    <label>Job ID
-                        <input type="text" id="jobId" placeholder="Filled after start">
-                    </label>
-                    <label>Report ID
-                        <input type="text" id="reportId" placeholder="Filled after report generation">
-                    </label>
-                </div>
-                <div class="actions">
-                    <button class="primary" id="uploadBtn" onclick="uploadConfig()">Upload Config</button>
-                    <button class="primary" id="startBtn" onclick="startScan()" disabled>Start Scan</button>
-                    <button class="secondary" id="statusBtn" onclick="checkStatus()" disabled>Check Progress</button>
-                    <button class="secondary" id="findingsBtn" onclick="getFindings()" disabled>Get Findings</button>
-                    <button class="primary" id="reportBtn" onclick="generateReport()" disabled>Generate Report</button>
-                    <a class="button-link" id="reportLink" href="#" target="_blank" rel="noopener" style="display:none;">Open Report</a>
-                </div>
-                <div class="toast" id="message"></div>
-                <pre id="rawOutput" aria-live="polite">{}</pre>
+        <header>
+            <h2>Security Console</h2>
+            <div id="connectionStatus" style="font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                <div style="width: 8px; height: 8px; background: var(--success); border-radius: 50%;"></div>
+                Connected
             </div>
+        </header>
 
-            <aside class="panel">
-                <h2>Evidence Pipeline</h2>
-                <div class="steps">
-                    <div class="step" id="step-upload"><div class="dot">1</div><div><strong>Configuration</strong><span>Target, auth roles, and authorization identifiers loaded.</span></div></div>
-                    <div class="step" id="step-scan"><div class="dot">2</div><div><strong>Scanner</strong><span>ZAP spider and active scan are queued through Celery.</span></div></div>
-                    <div class="step" id="step-validate"><div class="dot">3</div><div><strong>Validation</strong><span>Replay, auth swap, IDOR/BOLA mutation, and triage enrich findings.</span></div></div>
-                    <div class="step" id="step-report"><div class="dot">4</div><div><strong>Report</strong><span>Developer and enterprise-ready VAPT report generated.</span></div></div>
+        <div class="content">
+            <section class="stats">
+                <div class="stat-item">
+                    <span class="stat-label">Active Scan</span>
+                    <span class="stat-value" id="statScanId">None</span>
                 </div>
-            </aside>
-        </section>
+                <div class="stat-item">
+                    <span class="stat-label">Progress</span>
+                    <span class="stat-value" id="statProgress">0%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Total Findings</span>
+                    <span class="stat-value" id="statFindings">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Validated</span>
+                    <span class="stat-value" id="statValidated">0</span>
+                </div>
+            </section>
 
-        <section class="panel">
-            <h2>Findings</h2>
-            <div id="findingsEmpty" class="toast">No findings loaded yet.</div>
-            <table id="findingsTable" style="display:none;">
-                <thead>
-                    <tr>
-                        <th>Severity</th>
-                        <th>Finding</th>
-                        <th>Validation</th>
-                        <th>URL</th>
-                        <th>Confidence</th>
-                    </tr>
-                </thead>
-                <tbody id="findingsBody"></tbody>
-            </table>
-        </section>
+            <div class="grid">
+                <div class="left-col">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Start New Scan</h3>
+                        </div>
+                        <div class="form-group">
+                            <label>Configuration File (YAML)</label>
+                            <input type="file" id="configFile" accept=".yaml,.yml">
+                        </div>
+                        <div class="grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 0;">
+                            <div class="form-group">
+                                <label>Workspace</label>
+                                <input type="text" id="workspaceId" value="default">
+                            </div>
+                            <div class="form-group">
+                                <label>Existing Scan ID (to fetch results)</label>
+                                <input type="text" id="loadScanId" placeholder="Enter UUID to resume">
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn-primary" id="uploadBtn" onclick="uploadConfig()">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                Upload Config
+                            </button>
+                            <button class="btn-primary" id="startBtn" onclick="startScan()" disabled>
+                                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                Start Scan
+                            </button>
+                            <button class="btn-secondary" id="loadBtn" onclick="resumeScan()">
+                                Load Scan
+                            </button>
+                        </div>
+                        
+                        <div id="activeScanDetails" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border); display: none;">
+                            <div class="grid" style="grid-template-columns: 1fr 1fr;">
+                                <div class="form-group">
+                                    <label>Config ID</label>
+                                    <input type="text" id="configId" readonly style="background: var(--bg); font-family: monospace; font-size: 12px;">
+                                </div>
+                                <div class="form-group">
+                                    <label>Scan ID</label>
+                                    <input type="text" id="scanId" readonly style="background: var(--bg); font-family: monospace; font-size: 12px;">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Job ID</label>
+                                <input type="text" id="jobId" readonly style="background: var(--bg); font-family: monospace; font-size: 12px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Vulnerability Findings</h3>
+                            <div class="btn-group" style="margin-top: 0;">
+                                <button class="btn-primary" id="reportBtn" onclick="generateReport()" disabled style="padding: 6px 12px; font-size: 12px;">
+                                    Generate Report
+                                </button>
+                                <a id="reportLink" href="#" target="_blank" style="display: none; font-size: 12px; color: var(--accent); font-weight: 600;">Download Report</a>
+                            </div>
+                        </div>
+                        <div id="findingsEmpty" style="padding: 40px; text-align: center; color: var(--text-muted);">
+                            <p>No findings to display. Start a scan or enter a Scan ID above.</p>
+                        </div>
+                        <table id="findingsTable" style="display: none;">
+                            <thead>
+                                <tr>
+                                    <th>Severity</th>
+                                    <th>Title</th>
+                                    <th>Status</th>
+                                    <th>URL</th>
+                                    <th>Score</th>
+                                </tr>
+                            </thead>
+                            <tbody id="findingsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="right-col">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Execution Pipeline</h3>
+                        </div>
+                        <div class="pipeline">
+                            <div class="step" id="step-upload">
+                                <div class="step-icon">1</div>
+                                <div class="step-content">
+                                    <h4>Configuration</h4>
+                                    <p>Upload YAML target and auth settings.</p>
+                                </div>
+                            </div>
+                            <div class="step" id="step-scan">
+                                <div class="step-icon">2</div>
+                                <div class="step-content">
+                                    <h4>Scanner</h4>
+                                    <p>ZAP Spider & Active Scan in progress.</p>
+                                </div>
+                            </div>
+                            <div class="step" id="step-validate">
+                                <div class="step-icon">3</div>
+                                <div class="step-content">
+                                    <h4>Validation</h4>
+                                    <p>Replay, Auth Swap, and AI Triage.</p>
+                                </div>
+                            </div>
+                            <div class="step" id="step-report">
+                                <div class="step-icon">4</div>
+                                <div class="step-content">
+                                    <h4>Reporting</h4>
+                                    <p>Final VAPT report generation.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Raw API Response</h3>
+                        </div>
+                        <pre id="rawOutput">{}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
+
+    <div id="toast" class="toast"></div>
 
     <script>
         const state = {
             pollTimer: null,
-            configId: "",
-            scanId: "",
-            jobId: "",
-            reportId: "",
+            configId: localStorage.getItem('dast_config_id') || "",
+            scanId: localStorage.getItem('dast_scan_id') || "",
+            jobId: localStorage.getItem('dast_job_id') || "",
+            workspaceId: localStorage.getItem('dast_workspace_id') || "default",
         };
 
-        function setMessage(text, kind = "") {
-            const el = document.getElementById("message");
-            el.textContent = text;
-            el.className = `toast ${kind}`.trim();
+        function init() {
+            if (state.configId) document.getElementById('configId').value = state.configId;
+            if (state.scanId) document.getElementById('scanId').value = state.scanId;
+            if (state.jobId) document.getElementById('jobId').value = state.jobId;
+            if (state.workspaceId) document.getElementById('workspaceId').value = state.workspaceId;
+            
+            if (state.scanId || state.jobId) {
+                document.getElementById('activeScanDetails').style.display = 'block';
+                updateControls();
+                if (state.jobId) {
+                   startPolling();
+                } else if (state.scanId) {
+                   getFindings();
+                }
+            }
+        }
+
+        function notify(text, type = "success") {
+            const toast = document.getElementById("toast");
+            toast.textContent = text;
+            toast.className = `toast ${type}`;
+            toast.style.display = "block";
+            setTimeout(() => { toast.style.display = "none"; }, 5000);
         }
 
         function showRaw(data) {
@@ -331,18 +454,9 @@
         }
 
         function updateControls() {
-            document.getElementById("startBtn").disabled = !document.getElementById("configId").value.trim();
-            document.getElementById("statusBtn").disabled = !document.getElementById("jobId").value.trim();
-            document.getElementById("findingsBtn").disabled = !document.getElementById("scanId").value.trim();
-            document.getElementById("reportBtn").disabled = !document.getElementById("scanId").value.trim();
-            document.getElementById("metricConfig").textContent = document.getElementById("configId").value.trim() || "Not uploaded";
-            document.getElementById("metricScan").textContent = document.getElementById("scanId").value.trim() || "Not started";
-        }
-
-        function markStep(id, status) {
-            const el = document.getElementById(id);
-            el.classList.remove("active", "done");
-            if (status) el.classList.add(status);
+            document.getElementById("startBtn").disabled = !state.configId;
+            document.getElementById("reportBtn").disabled = !state.scanId;
+            document.getElementById("statScanId").textContent = state.scanId ? state.scanId.substring(0, 8) + '...' : "None";
         }
 
         async function requestJson(url, options = {}) {
@@ -357,50 +471,90 @@
         async function uploadConfig() {
             const fileInput = document.getElementById("configFile");
             if (!fileInput.files.length) {
-                setMessage("Choose a YAML configuration first.", "error");
+                notify("Please select a YAML file", "error");
                 return;
             }
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
-            markStep("step-upload", "active");
-            setMessage("Uploading and validating configuration...");
+            
+            setStep('upload', 'active');
             try {
                 const result = await requestJson("/api/v1/scans/upload-config", { method: "POST", body: formData });
                 state.configId = result.config_id;
-                document.getElementById("configId").value = result.config_id;
-                markStep("step-upload", "done");
-                setMessage("Configuration uploaded.", "success");
+                localStorage.setItem('dast_config_id', state.configId);
+                document.getElementById("configId").value = state.configId;
+                document.getElementById('activeScanDetails').style.display = 'block';
+                
+                setStep('upload', 'completed');
+                notify("Configuration uploaded successfully");
                 showRaw(result);
                 updateControls();
             } catch (error) {
-                setMessage(error.message, "error");
-                showRaw({ error: error.message });
+                notify(error.message, "error");
+                setStep('upload', '');
             }
         }
 
         async function startScan() {
-            const configId = document.getElementById("configId").value.trim();
             const workspaceId = document.getElementById("workspaceId").value.trim() || "default";
-            markStep("step-scan", "active");
-            setMessage("Starting scanner job...");
+            state.workspaceId = workspaceId;
+            localStorage.setItem('dast_workspace_id', workspaceId);
+
+            setStep('scan', 'active');
             try {
                 const result = await requestJson("/api/v1/scans/start-scan", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ config_id: configId, workspace_id: workspaceId }),
+                    body: JSON.stringify({ config_id: state.configId, workspace_id: workspaceId }),
                 });
                 state.scanId = result.scan_id;
                 state.jobId = result.job_id;
-                document.getElementById("scanId").value = result.scan_id;
-                document.getElementById("jobId").value = result.job_id;
-                document.getElementById("metricStatus").textContent = "Running";
-                setMessage("Scan started. Progress polling is active.", "success");
+                localStorage.setItem('dast_scan_id', state.scanId);
+                localStorage.setItem('dast_job_id', state.jobId);
+                
+                document.getElementById("scanId").value = state.scanId;
+                document.getElementById("jobId").value = state.jobId;
+                
+                notify("Scan job started");
                 showRaw(result);
                 updateControls();
                 startPolling();
             } catch (error) {
-                setMessage(error.message, "error");
-                showRaw({ error: error.message });
+                notify(error.message, "error");
+                setStep('scan', '');
+            }
+        }
+
+        async function resumeScan() {
+            const id = document.getElementById('loadScanId').value.trim();
+            if (!id) return notify("Enter a Scan ID", "error");
+            
+            try {
+                const result = await requestJson(`/api/v1/scans/status-by-scan/${encodeURIComponent(id)}`);
+                if (result.status === "not_found") {
+                    return notify("Scan not found", "error");
+                }
+                
+                state.scanId = id;
+                state.jobId = result.scan?.celery_task_id || "";
+                localStorage.setItem('dast_scan_id', id);
+                localStorage.setItem('dast_job_id', state.jobId);
+                
+                document.getElementById("scanId").value = id;
+                document.getElementById("jobId").value = state.jobId;
+                document.getElementById('activeScanDetails').style.display = 'block';
+                
+                notify("Scan results loaded");
+                showRaw(result);
+                renderFindings([]); // Clear current table
+                await getFindings();
+                updateControls();
+                
+                if (result.status === "running") {
+                    startPolling();
+                }
+            } catch (error) {
+                notify(error.message, "error");
             }
         }
 
@@ -411,108 +565,111 @@
         }
 
         async function checkStatus() {
-            const jobId = document.getElementById("jobId").value.trim();
-            if (!jobId) return;
+            if (!state.jobId) return;
             try {
-                const result = await requestJson(`/api/v1/scans/scan-status/${encodeURIComponent(jobId)}`);
+                const result = await requestJson(`/api/v1/scans/scan-status/${encodeURIComponent(state.jobId)}`);
                 const status = result.status || "unknown";
-                document.getElementById("metricStatus").textContent = status;
+                
                 showRaw(result);
+                
+                if (result.progress && result.progress.progress) {
+                    const prog = result.progress.progress;
+                    if (prog.includes('%')) {
+                        document.getElementById('statProgress').textContent = prog.split(' ')[1];
+                    }
+                }
+
                 if (status === "completed") {
                     clearInterval(state.pollTimer);
                     state.pollTimer = null;
-                    markStep("step-scan", "done");
-                    markStep("step-validate", "done");
-                    setMessage("Scan completed. Findings are ready to load.", "success");
+                    setStep('scan', 'completed');
+                    setStep('validate', 'completed');
+                    notify("Scan and validation completed");
                     await getFindings();
                 } else if (status === "failed") {
                     clearInterval(state.pollTimer);
                     state.pollTimer = null;
-                    setMessage(result.error || "Scan failed.", "error");
+                    notify("Scan failed: " + (result.error || "Unknown error"), "error");
                 } else {
-                    markStep("step-validate", "active");
-                    setMessage(result.progress?.progress || "Scan in progress...");
+                    setStep('scan', 'active');
                 }
-                updateControls();
             } catch (error) {
-                setMessage(error.message, "error");
-                showRaw({ error: error.message });
+                console.error(error);
             }
         }
 
         async function getFindings() {
-            const scanId = document.getElementById("scanId").value.trim();
+            if (!state.scanId) return;
             try {
-                const result = await requestJson(`/api/v1/scans/findings/${encodeURIComponent(scanId)}`);
+                const result = await requestJson(`/api/v1/scans/findings/${encodeURIComponent(state.scanId)}`);
                 renderFindings(result.findings || []);
                 showRaw(result);
-                setMessage("Findings loaded.", "success");
             } catch (error) {
-                setMessage(error.message, "error");
-                showRaw({ error: error.message });
+                notify(error.message, "error");
             }
         }
 
         function renderFindings(findings) {
-            document.getElementById("metricFindings").textContent = findings.length;
+            document.getElementById("statFindings").textContent = findings.length;
+            document.getElementById("statValidated").textContent = findings.filter(f => f.validation_status === 'confirmed' || f.validation_status === 'likely').length;
+            
             const table = document.getElementById("findingsTable");
             const empty = document.getElementById("findingsEmpty");
             const body = document.getElementById("findingsBody");
             body.innerHTML = "";
+            
             if (!findings.length) {
                 table.style.display = "none";
                 empty.style.display = "block";
                 return;
             }
+            
             empty.style.display = "none";
             table.style.display = "table";
-            findings.forEach((finding) => {
+            
+            findings.forEach((f) => {
                 const row = document.createElement("tr");
-                const severity = String(finding.severity || "info").toLowerCase();
+                const sev = (f.severity || "info").toLowerCase();
                 row.innerHTML = `
-                    <td><span class="badge ${severity}">${severity}</span></td>
-                    <td>${escapeHtml(finding.title || "Untitled")}</td>
-                    <td>${escapeHtml(finding.validation_status || "pending")}</td>
-                    <td>${escapeHtml(finding.url || "")}</td>
-                    <td>${finding.exploitability_score ?? ""}</td>
+                    <td><span class="badge badge-${sev}">${sev}</span></td>
+                    <td style="font-weight: 500;">${escapeHtml(f.title)}</td>
+                    <td>${f.validation_status}</td>
+                    <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-muted);">${escapeHtml(f.url)}</td>
+                    <td style="font-family: monospace;">${f.exploitability_score.toFixed(2)}</td>
                 `;
                 body.appendChild(row);
             });
         }
 
         async function generateReport() {
-            const scanId = document.getElementById("scanId").value.trim();
-            markStep("step-report", "active");
+            setStep('report', 'active');
             try {
-                const result = await requestJson(`/api/v1/reports/generate-report/${encodeURIComponent(scanId)}`, { method: "POST" });
-                state.reportId = result.report_id;
-                document.getElementById("reportId").value = result.report_id;
+                const result = await requestJson(`/api/v1/reports/generate-report/${encodeURIComponent(state.scanId)}`, { method: "POST" });
                 const link = document.getElementById("reportLink");
                 link.href = `/api/v1/reports/report/${encodeURIComponent(result.report_id)}/download`;
-                link.style.display = "inline-flex";
-                markStep("step-report", "done");
-                setMessage("Report generated.", "success");
+                link.style.display = "inline-block";
+                setStep('report', 'completed');
+                notify("Report generated successfully");
                 showRaw(result);
-                updateControls();
             } catch (error) {
-                setMessage(error.message, "error");
-                showRaw({ error: error.message });
+                notify(error.message, "error");
+                setStep('report', '');
             }
         }
 
-        function escapeHtml(value) {
-            return String(value)
-                .replaceAll("&", "&amp;")
-                .replaceAll("<", "&lt;")
-                .replaceAll(">", "&gt;")
-                .replaceAll('"', "&quot;")
-                .replaceAll("'", "&#039;");
+        function setStep(step, status) {
+            const el = document.getElementById(`step-${step}`);
+            if (!el) return;
+            el.className = 'step ' + status;
         }
 
-        ["configId", "scanId", "jobId"].forEach((id) => {
-            document.getElementById(id).addEventListener("input", updateControls);
-        });
-        updateControls();
+        function escapeHtml(value) {
+            return String(value || "").replace(/[&<>"']/g, m => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[m]));
+        }
+
+        init();
     </script>
 </body>
 </html>

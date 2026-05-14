@@ -62,6 +62,11 @@ async def get_scan_status(job_id: str):
     status = await scan_service.get_scan_status(job_id)
     return {"status": status}
 
+@router.get("/status-by-scan/{scan_id}")
+async def get_status_by_scan(scan_id: str):
+    status = await scan_service.get_status_by_scan_id(scan_id)
+    return {"status": status}
+
 @router.get("/findings/{scan_id}")
 async def get_findings(scan_id: str):
     findings = await scan_service.get_findings(scan_id)

@@ -55,22 +55,27 @@ confidence: 0.0 to 1.0
         if not self.client:
             return self._deterministic_fallback(finding_payload, validation_payload)
 
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=500
-        )
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500
+            )
 
-        analysis = response.choices[0].message.content
+            analysis = response.choices[0].message.content
 
-        # Parse response (simplified)
-        return {
-            'classification': 'needs manual review',  # placeholder
-            'root_cause': analysis,
-            'remediation': 'Review validation evidence and fix the vulnerable server-side control.',
-            'exploitability_reasoning': analysis,
-            'confidence': 0.7
-        }
+            # Parse response (simplified)
+            return {
+                'classification': 'needs manual review',  # placeholder
+                'root_cause': analysis,
+                'remediation': 'Review validation evidence and fix the vulnerable server-side control.',
+                'exploitability_reasoning': analysis,
+                'confidence': 0.7
+            }
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("AI triage failed, falling back to deterministic: %s", exc)
+            return self._deterministic_fallback(finding_payload, validation_payload)
 
     def _deterministic_fallback(self, finding: Dict[str, Any], validation_results: list[Dict[str, Any]]) -> Dict[str, Any]:
         confirmed = any(item.get("exploitable") and item.get("confidence", 0) >= 0.8 for item in validation_results)

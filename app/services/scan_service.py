@@ -73,6 +73,28 @@ class ScanService:
         else:
             return {"status": "failed", "error": str(result.info), "scan": scan_payload}
 
+    async def get_status_by_scan_id(self, scan_id: str) -> Dict[str, Any]:
+        async with get_db() as session:
+            result = await session.execute(select(Scan).where(Scan.id == scan_id))
+            scan = result.scalar_one_or_none()
+            if not scan:
+                return {"status": "not_found"}
+            
+            if scan.celery_task_id:
+                return await self.get_scan_status(scan.celery_task_id)
+            
+            return {
+                "status": scan.status,
+                "scan": {
+                    "scan_id": scan.id,
+                    "status": scan.status,
+                    "scanner": scan.scanner,
+                    "started_at": scan.started_at.isoformat() if scan.started_at else None,
+                    "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+                    "target": (scan.config or {}).get("target"),
+                }
+            }
+
     async def get_findings(self, scan_id: str) -> List[Dict[str, Any]]:
         async with get_db() as session:
             result = await session.execute(

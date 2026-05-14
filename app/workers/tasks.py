@@ -5,6 +5,7 @@ from app.replay.replay_engine import ReplayEngine
 from app.validators.idor_validator import IDORValidator
 from app.validators.authorization_engine import AuthorizationValidationEngine
 from app.auth.context_manager import AuthContextManager
+from app.auth.playwright_auth import PlaywrightAuthEngine
 from app.ai.triage_engine import AITriageEngine
 import asyncio
 from app.db.base import get_db
@@ -68,11 +69,34 @@ async def _execute_zap_scan(self, scan_id):
     app_config = app.config
     target_url = app_config.get('application', {}).get('base_url', 'http://example.com')
     
-    # For now, no auth headers - this would come from auth sessions
+    # Perform authentication if configured
     auth_headers = {}
-    
+    cookies = {}
+    auth_config = app_config.get('authentication')
+    if auth_config and auth_config.get('type') == 'playwright_jwt':
+        try:
+            self.update_state(state='PROGRESS', meta={'progress': 'Performing authentication'})
+            login_url = auth_config.get('login_url')
+            # Default to admin role for scan if multiple roles exist
+            users = auth_config.get('users', {})
+            role = 'admin' if 'admin' in users else list(users.keys())[0] if users else None
+            user_data = users.get(role) if role else None
+            
+            if login_url and user_data:
+                async with PlaywrightAuthEngine(workspace_id=scan.workspace_id, application_id=scan.application_id, role=role) as auth_engine:
+                    auth_context = await auth_engine.authenticate(
+                        login_url=login_url,
+                        username=user_data.get('username'),
+                        password=user_data.get('password')
+                    )
+                    auth_headers = auth_context.headers
+                    cookies = auth_context.cookies
+                    logger.info(f"Authenticated as {role}, captured {len(cookies)} cookies")
+        except Exception as exc:
+            logger.exception("Authentication failed, proceeding unauthenticated: %s", exc)
+
     scanner = scanner_registry.create(scan.scanner)
-    scan_id_zap = scanner.start_scan(ScanTarget(url=target_url, auth_headers=auth_headers))
+    scan_id_zap = scanner.start_scan(ScanTarget(url=target_url, auth_headers=auth_headers, cookies=cookies))
     async with get_db() as session:
         await session.execute(
             update(Scan).where(Scan.id == scan_id).values(scanner_scan_id=scan_id_zap)

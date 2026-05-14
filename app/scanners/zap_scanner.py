@@ -39,9 +39,11 @@ class ZAPScanner(ScannerPlugin):
     def start_scan(self, target: ScanTarget | str, auth_headers: Dict[str, str] = None) -> str:
         if isinstance(target, ScanTarget):
             target_url = target.url
-            auth_headers = target.auth_headers
+            auth_headers = target.auth_headers or {}
+            cookies = target.cookies or {}
         else:
             target_url = target
+            cookies = {}
 
         self.wait_until_ready()
 
@@ -53,13 +55,31 @@ class ZAPScanner(ScannerPlugin):
                 f"ZAP proxy at {self.api_url} could not open target {target_url}: {exc}"
             ) from exc
 
-        # Import context if needed
-        # self.zap.context.import_context(...)
-
-        # Set auth headers
+        # Inject auth headers/cookies using ZAP's Replacer extension
+        # This is more robust than httpsessions for many modern apps
         if auth_headers:
             for header, value in auth_headers.items():
-                self.zap.httpsessions.add_http_session_token(target_url, header, value)
+                logger.info(f"Injecting header {header}")
+                self.zap.replacer.add_rule(
+                    description=f"Auth header {header}",
+                    enabled="true",
+                    matchtype="REQ_HEADER",
+                    matchregex="false",
+                    replacement=value,
+                    matchstring=header,
+                )
+
+        if cookies:
+            cookie_str = "; ".join([f"{k}={v}" for k, v in cookies.items()])
+            logger.info(f"Injecting cookies: {list(cookies.keys())}")
+            self.zap.replacer.add_rule(
+                description="Auth cookies",
+                enabled="true",
+                matchtype="REQ_HEADER",
+                matchregex="false",
+                replacement=cookie_str,
+                matchstring="Cookie",
+            )
 
         # Start spider
         try:
@@ -75,10 +95,32 @@ class ZAPScanner(ScannerPlugin):
             time.sleep(1)
 
         # Start active scan
-        scan_id = self.zap.ascan.scan(target_url)
-        logger.info(f"Started active scan: {scan_id}")
+        try:
+            # Use recurse=True to ensure it picks up the URL even if it's just the root of a site
+            scan_id = self.zap.ascan.scan(target_url, recurse=True)
+            
+            # Verify scan_id is a valid numeric string and ZAP actually knows about it
+            if not scan_id or not str(scan_id).isdigit():
+                 raise RuntimeError(f"ZAP returned invalid scan ID: {scan_id}")
+            
+            # Check if ZAP can see this scan
+            status = self.zap.ascan.status(scan_id)
+            logger.info(f"Started active scan: {scan_id}, initial status: {status}")
+        except Exception as exc:
+            # Fallback: try to find the site in the tree if it failed with url_not_found
+            if "url_not_found" in str(exc).lower():
+                sites = self.zap.core.sites
+                logger.warning(f"URL {target_url} not found in ZAP sites tree. Available sites: {sites}")
+                # Try to find a match or just scan the first site if only one exists
+                if sites and len(sites) == 1:
+                    logger.info(f"Retrying active scan with site: {sites[0]}")
+                    scan_id = self.zap.ascan.scan(sites[0], recurse=True)
+                else:
+                    raise RuntimeError(f"ZAP could not find {target_url} in sites tree and multiple/no sites exist: {sites}")
+            else:
+                raise RuntimeError(f"Failed to start ZAP active scan: {exc}") from exc
 
-        return scan_id
+        return str(scan_id)
 
     def get_status(self, scan_id: str) -> int:
         return int(self.zap.ascan.status(scan_id))
