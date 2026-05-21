@@ -20,9 +20,11 @@ class AuthorizationTest(BaseModel):
 
 class ApplicationConfig(BaseModel):
     application: ApplicationInfo
-    authentication: Authentication
+    authentication: Optional[Authentication] = None
     roles: List[str] = Field(default_factory=list)
-    authorization_tests: AuthorizationTest
+    authorization_tests: AuthorizationTest = Field(default_factory=AuthorizationTest)
+    identities: List[Dict[str, Any]] = Field(default_factory=list)
+    scan: Dict[str, Any] = Field(default_factory=dict)
 
 class ApplicationCreate(BaseModel):
     name: str

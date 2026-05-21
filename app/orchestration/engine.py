@@ -11,10 +11,19 @@ from app.auth.identity_engine import IdentityEngine
 from app.crawling.engine import AuthenticatedCrawler
 from app.crawling.object_discovery import ObjectDiscoveryEngine
 from app.graph.engine import GraphEngine
+from app.intelligence.adaptive_planner import AdaptiveAttackPlanner
+from app.intelligence.application_mapper import ApplicationMapper
+from app.intelligence.chain_executor import AttackChainExecutor
+from app.intelligence.expectations import AuthorizationExpectationEngine
+from app.intelligence.reasoner import AuthorizationReasoner
+from app.intelligence.relationships import ObjectRelationshipInferenceEngine
+from app.intelligence.strategy import ScanStrategyPlanner
 from app.models.application import Application
-from app.models.authorization import Identity, ScanJob, WorkflowState
+from app.models.authorization import Identity, ScanJob, TrafficLog, WorkflowState
+from app.orchestration.contracts import AUTHORIZATION_SCAN_WORKFLOW
 from app.scanners.adapter import get_scanner_adapter
 from app.storage.traffic_store import TrafficStore
+from app.workflows.state_machine import WorkflowDiscoveryEngine
 
 
 class OrchestrationEngine:
@@ -45,7 +54,12 @@ class OrchestrationEngine:
             idempotency_key=f"authorization_scan:{job.id}",
             status="queued",
             stage="queued",
-            payload={"application_id": application_id, "identity_ids": identity_ids or []},
+            payload={
+                "application_id": application_id,
+                "identity_ids": identity_ids or [],
+                "workflow_definition": AUTHORIZATION_SCAN_WORKFLOW.name,
+                "activities": [activity.name for activity in AUTHORIZATION_SCAN_WORKFLOW.activities],
+            },
         )
         self.db.add(state)
         await self.db.flush()
@@ -81,6 +95,47 @@ class OrchestrationEngine:
         await self._mark(job, "running", "object_discovery")
         objects = await ObjectDiscoveryEngine(self.db).discover_for_scan(job.id)
 
+        await self._mark(job, "running", "workflow_discovery")
+        traffic_result = await self.db.execute(select(TrafficLog).where(TrafficLog.scan_job_id == job.id))
+        workflow_machine = await WorkflowDiscoveryEngine(self.db).discover_from_traffic(
+            list(traffic_result.scalars().all()),
+            objects,
+        )
+
+        await self._mark(job, "running", "application_mapping")
+        app_map = await ApplicationMapper(self.db).build(application.id, job.id)
+        expectations = await AuthorizationExpectationEngine(self.db).generate(
+            application_id=application.id,
+            workspace_id=job.workspace_id,
+            app_map=app_map,
+            scan_job_id=job.id,
+        )
+        relationship_graph = await ObjectRelationshipInferenceEngine(self.db).infer(
+            application_id=application.id,
+            workspace_id=job.workspace_id,
+            objects=objects,
+            scan_job_id=job.id,
+        )
+        attack_plan = AdaptiveAttackPlanner().plan(
+            app_map=app_map,
+            expectations=expectations,
+            relationships=relationship_graph,
+        )
+        planned_chains = await AttackChainExecutor(self.db).materialize_plan(
+            workspace_id=job.workspace_id,
+            application_id=application.id,
+            scan_job_id=job.id,
+            plan=attack_plan,
+            limit=int((job.config or {}).get("planned_chain_limit", 20)),
+        )
+        strategy = await ScanStrategyPlanner(self.db).persist_strategy(
+            workspace_id=job.workspace_id,
+            application_id=application.id,
+            scan_job_id=job.id,
+            app_map=app_map,
+            attack_plan=attack_plan,
+        )
+
         await self._mark(job, "running", "scanner_context")
         scanner = get_scanner_adapter(job.scanner_backend)
         await scanner.inject_context(application=application, identities=identities, sessions=sessions)
@@ -88,6 +143,9 @@ class OrchestrationEngine:
 
         await self._mark(job, "running", "authorization_attacks")
         attempts = await AuthorizationAttackEngine(self.db).run_attacks(job.id, application.id)
+
+        await self._mark(job, "running", "authorization_reasoning")
+        reasoning_findings = await AuthorizationReasoner(self.db).reason(application.id, job.id)
 
         await self._mark(job, "running", "graph")
         graph = await GraphEngine(self.db).build_graph(application.id, job.id)
@@ -101,7 +159,14 @@ class OrchestrationEngine:
                 "identities": len(identities),
                 "sessions": len(sessions),
                 "objects": len(objects),
+                "workflow_transitions": sum(len(v) for v in workflow_machine.transitions.values()),
+                "application_entities": len(app_map.entities),
+                "authorization_expectations": len(expectations),
+                "object_relationships": len(relationship_graph.edges),
+                "planned_attack_chains": len(planned_chains),
+                "strategy_priority_score": strategy["priority_score"],
                 "attack_attempts": len(attempts),
+                "reasoning_findings": len(reasoning_findings),
                 "scanner_scan_id": scanner_scan_id,
                 "graph_nodes": len(graph.get("nodes", [])),
             },

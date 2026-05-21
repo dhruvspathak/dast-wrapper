@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.authorization import Endpoint, ObjectReference, TrafficLog
+from app.crawling.ownership import OwnershipInferenceEngine
 
 
 NUMERIC_ID = re.compile(r"(?<![A-Za-z0-9])\d{2,}(?![A-Za-z0-9])")
@@ -21,6 +22,7 @@ TENANT_KEYS = {"tenant", "tenant_id", "org", "org_id", "workspace", "workspace_i
 class ObjectDiscoveryEngine:
     def __init__(self, db: AsyncSession):
         self.db = db
+        self.ownership = OwnershipInferenceEngine()
 
     async def discover_for_scan(self, scan_job_id: str) -> list[ObjectReference]:
         result = await self.db.execute(select(TrafficLog).where(TrafficLog.scan_job_id == scan_job_id))
@@ -109,6 +111,18 @@ class ObjectDiscoveryEngine:
         current = existing.scalar_one_or_none()
         if current:
             return current
+        ownership_signal = self.ownership.score(
+            key=ref.get("key"),
+            location=ref["location"],
+            endpoint_path=endpoint.path if endpoint else None,
+            identity_id=traffic.identity_id,
+            reference_type=ref["type"],
+        )
+        evidence = {
+            "traffic_log_id": traffic.id,
+            "key": ref.get("key"),
+            "ownership_reasons": ownership_signal.reasons,
+        }
         reference = ObjectReference(
             workspace_id=traffic.workspace_id,
             application_id=traffic.application_id,
@@ -117,9 +131,10 @@ class ObjectDiscoveryEngine:
             reference_type=ref["type"],
             value=ref["value"],
             location=ref["location"],
-            ownership_confidence=0.8 if traffic.identity_id else 0.2,
+            ownership_confidence=ownership_signal.score,
+            ownership_confidence_score=ownership_signal.score,
             tenant_hint=ref["value"] if ref["type"] == "tenant" else None,
-            evidence={"traffic_log_id": traffic.id, "key": ref.get("key")},
+            evidence=evidence,
         )
         self.db.add(reference)
         await self.db.flush()

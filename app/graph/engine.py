@@ -5,12 +5,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.authorization import (
     AttackAttempt,
+    AttackChain,
     AuthorizationGraphSnapshot,
     Endpoint,
+    EvidenceRecord,
     Identity,
     ObjectReference,
     TrafficLog,
     ValidationResult,
+    WorkflowTransition,
 )
 
 
@@ -23,6 +26,8 @@ class GraphEngine:
         identities = await self._all(Identity, Identity.application_id == application_id)
         endpoints = await self._all(Endpoint, Endpoint.application_id == application_id)
         objects = await self._all(ObjectReference, ObjectReference.application_id == application_id)
+        transitions = await self._all(WorkflowTransition, WorkflowTransition.application_id == application_id)
+        chains = await self._all(AttackChain, AttackChain.application_id == application_id)
         traffic_query = select(TrafficLog).where(TrafficLog.application_id == application_id)
         if scan_job_id:
             traffic_query = traffic_query.where(TrafficLog.scan_job_id == scan_job_id)
@@ -60,6 +65,7 @@ class GraphEngine:
                 reference_type=obj.reference_type,
                 value=obj.value,
                 tenant_hint=obj.tenant_hint,
+                ownership_confidence=obj.ownership_confidence_score,
             )
             if obj.identity_id:
                 graph.add_edge(f"user:{obj.identity_id}", f"object:{obj.id}", relationship="owns")
@@ -76,14 +82,68 @@ class GraphEngine:
                 )
 
         for attempt in attempts:
-            verdict = await self._validation_verdict(attempt.id)
+            validation = await self._validation(attempt.id)
+            attack_node = f"attack:{attempt.id}"
+            graph.add_node(
+                attack_node,
+                kind="attack",
+                attack_type=attempt.attack_type,
+                status=attempt.status,
+                verdict=validation.verdict if validation else None,
+                confidence=validation.confidence if validation else None,
+            )
+            if attempt.baseline_traffic_log_id:
+                graph.add_edge(f"traffic:{attempt.baseline_traffic_log_id}", attack_node, relationship="baseline_for")
+            if attempt.replay_traffic_log_id:
+                graph.add_edge(attack_node, f"traffic:{attempt.replay_traffic_log_id}", relationship="replayed_as")
             if attempt.target_identity_id and attempt.object_reference_id:
                 graph.add_edge(
                     f"user:{attempt.target_identity_id}",
                     f"object:{attempt.object_reference_id}",
                     relationship=attempt.attack_type,
-                    status=verdict,
+                    status=validation.verdict if validation else None,
                 )
+            if validation:
+                validation_node = f"validation:{validation.id}"
+                graph.add_node(
+                    validation_node,
+                    kind="validation",
+                    verdict=validation.verdict,
+                    confidence=validation.confidence,
+                    reasons=validation.validation_reasons,
+                )
+                graph.add_edge(attack_node, validation_node, relationship="validated_by")
+
+        for log in traffic:
+            graph.add_node(
+                f"traffic:{log.id}",
+                kind="traffic",
+                source_type=log.source_type,
+                replay_depth=log.replay_depth,
+                normalized_response_hash=log.normalized_response_hash,
+            )
+            if log.parent_traffic_log_id:
+                graph.add_edge(f"traffic:{log.parent_traffic_log_id}", f"traffic:{log.id}", relationship="lineage_parent")
+
+        for chain in chains:
+            chain_node = f"chain:{chain.id}"
+            graph.add_node(chain_node, kind="attack_chain", chain_type=chain.chain_type, status=chain.status)
+            if chain.root_traffic_log_id:
+                graph.add_edge(chain_node, f"traffic:{chain.root_traffic_log_id}", relationship="starts_from")
+
+        for transition in transitions:
+            node = f"workflow:{transition.id}"
+            graph.add_node(
+                node,
+                kind="workflow_transition",
+                from_state=transition.from_state,
+                to_state=transition.to_state,
+                confidence=transition.confidence,
+            )
+            if transition.object_reference_id:
+                graph.add_edge(f"object:{transition.object_reference_id}", node, relationship="has_transition")
+            if transition.endpoint_id:
+                graph.add_edge(f"endpoint:{transition.endpoint_id}", node, relationship="caused_transition")
 
         payload = graph.to_node_link_data()
         snapshot = AuthorizationGraphSnapshot(
@@ -96,11 +156,42 @@ class GraphEngine:
         await self.db.flush()
         return payload
 
-    async def _validation_verdict(self, attack_attempt_id: str) -> str | None:
+    async def _validation(self, attack_attempt_id: str) -> ValidationResult | None:
         result = await self.db.execute(
-            select(ValidationResult.verdict).where(ValidationResult.attack_attempt_id == attack_attempt_id)
+            select(ValidationResult).where(ValidationResult.attack_attempt_id == attack_attempt_id)
         )
         return result.scalar_one_or_none()
+
+    async def objects_owned_by_user(self, identity_id: str) -> list[ObjectReference]:
+        return await self._all(ObjectReference, ObjectReference.identity_id == identity_id)
+
+    async def endpoints_accessed_by_role(self, application_id: str, role: str) -> list[Endpoint]:
+        result = await self.db.execute(
+            select(Endpoint)
+            .join(TrafficLog, TrafficLog.endpoint_id == Endpoint.id)
+            .join(Identity, Identity.id == TrafficLog.identity_id)
+            .where(Endpoint.application_id == application_id, Identity.role == role)
+        )
+        return list(result.scalars().unique().all())
+
+    async def attack_paths(self, scan_job_id: str) -> list[dict]:
+        result = await self.db.execute(
+            select(AttackAttempt, ValidationResult)
+            .join(ValidationResult, ValidationResult.attack_attempt_id == AttackAttempt.id)
+            .where(AttackAttempt.scan_job_id == scan_job_id)
+        )
+        return [
+            {
+                "attack_attempt_id": attempt.id,
+                "attack_chain_id": attempt.attack_chain_id,
+                "source_identity_id": attempt.source_identity_id,
+                "target_identity_id": attempt.target_identity_id,
+                "object_reference_id": attempt.object_reference_id,
+                "verdict": validation.verdict,
+                "confidence": validation.confidence,
+            }
+            for attempt, validation in result.all()
+        ]
 
     async def _all(self, model, *criteria) -> list:
         result = await self.db.execute(select(model).where(*criteria))

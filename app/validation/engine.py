@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.validation.normalization import ResponseNormalizer
+
 
 SENSITIVE_FIELD_NAMES = {
     "email",
@@ -21,6 +23,9 @@ SENSITIVE_FIELD_NAMES = {
 
 
 class ValidationEngine:
+    def __init__(self, normalizer: ResponseNormalizer | None = None):
+        self.normalizer = normalizer or ResponseNormalizer()
+
     def validate(
         self,
         *,
@@ -32,6 +37,7 @@ class ValidationEngine:
         replay_status = int(replay_response.get("status_code") or replay_response.get("status") or 0)
         baseline_body = str(baseline_response.get("body") or "")
         replay_body = str(replay_response.get("body") or "")
+        normalized_diff = self.normalizer.semantic_diff(baseline_body, replay_body)
         baseline_json = self._json_or_none(baseline_body)
         replay_json = self._json_or_none(replay_body)
 
@@ -41,24 +47,43 @@ class ValidationEngine:
         schema_similarity = self._schema_similarity(baseline_json, replay_json)
         sensitive_fields = sorted(self._sensitive_fields(replay_json))
         semantic_indicators = self._semantic_indicators(replay_body)
+        leakage_indicators = self._leakage_indicators(baseline_json, replay_json, replay_body)
+        access_anomalies = self._access_anomalies(baseline_json, replay_json)
+        reasons: list[str] = []
 
         confidence = 0.0
         verdict = "not_exploitable"
         if status_allows_access:
+            reasons.append("replay_identity_received_success_status")
             confidence += 0.35
             confidence += 0.25 * size_similarity
             confidence += 0.25 * schema_similarity
+            if normalized_diff["structure_equal"]:
+                confidence += 0.1
+                reasons.append("normalized_response_structure_matches_baseline")
             if sensitive_fields:
                 confidence += 0.1
+                reasons.append("sensitive_fields_present_in_replay")
             if semantic_indicators:
                 confidence += 0.05
+                reasons.append("authorization_semantic_indicators_present")
+            if leakage_indicators:
+                confidence += 0.1
+                reasons.append("leakage_indicators_present")
+            if access_anomalies:
+                confidence += 0.08
+                reasons.append("access_pattern_anomalies_present")
+            if replay_status == 204:
+                reasons.append("state_changing_request_succeeded_without_body")
             verdict = "confirmed" if confidence >= 0.75 else "likely" if confidence >= 0.5 else "needs_review"
         elif denied:
             verdict = "blocked"
             confidence = 0.9
+            reasons.append("replay_identity_was_denied")
         else:
             verdict = "needs_review"
             confidence = 0.25
+            reasons.append("ambiguous_replay_status")
 
         return {
             "verdict": verdict,
@@ -70,9 +95,13 @@ class ValidationEngine:
                 "size_similarity": round(size_similarity, 3),
                 "schema_similarity": round(schema_similarity, 3),
             },
+            "normalized_diff": normalized_diff,
             "sensitive_fields": sensitive_fields,
             "semantic_indicators": semantic_indicators,
-            "evidence": {"attack_type": attack_type},
+            "leakage_indicators": leakage_indicators,
+            "access_anomalies": access_anomalies,
+            "validation_reasons": reasons,
+            "evidence": {"attack_type": attack_type, "reasons": reasons},
         }
 
     def _json_or_none(self, body: str) -> Any | None:
@@ -128,3 +157,32 @@ class ValidationEngine:
             if token in lowered:
                 indicators.append(token)
         return indicators
+
+    def _leakage_indicators(self, baseline: Any, replay: Any, replay_body: str) -> list[str]:
+        indicators = []
+        replay_paths = self._schema_keys(replay)
+        for field in ["total", "count", "page", "next", "previous", "cursor", "has_more"]:
+            if any(path.lower().endswith(field) for path in replay_paths):
+                indicators.append(f"pagination_or_row_count:{field}")
+        for field in ["created_by", "updated_by", "owner", "internal_id", "tenant_id", "deleted_at"]:
+            if any(field in path.lower() for path in replay_paths):
+                indicators.append(f"metadata_exposure:{field}")
+        if 'type="hidden"' in replay_body.lower() or '"hidden"' in replay_body.lower():
+            indicators.append("hidden_field_exposure")
+        if baseline is not None and replay is not None:
+            removed = self._schema_keys(baseline) - replay_paths
+            added = replay_paths - self._schema_keys(baseline)
+            if added and len(added) > len(removed):
+                indicators.append("partial_data_leakage_schema_expansion")
+        return sorted(set(indicators))
+
+    def _access_anomalies(self, baseline: Any, replay: Any) -> list[str]:
+        anomalies = []
+        if isinstance(baseline, list) and isinstance(replay, list) and len(replay) > len(baseline) * 2 and len(replay) > 10:
+            anomalies.append("row_count_expansion")
+        if isinstance(baseline, dict) and isinstance(replay, dict):
+            for key in ("items", "results", "data"):
+                if isinstance(baseline.get(key), list) and isinstance(replay.get(key), list):
+                    if len(replay[key]) > len(baseline[key]) * 2 and len(replay[key]) > 10:
+                        anomalies.append(f"row_count_expansion:{key}")
+        return anomalies

@@ -6,14 +6,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.authorization import Endpoint, TrafficLog
+from app.validation.normalization import ResponseNormalizer
 
 
 class TrafficStore:
     def __init__(self, db: AsyncSession):
         self.db = db
+        self.normalizer = ResponseNormalizer()
 
     async def record(self, payload: dict) -> TrafficLog:
         endpoint = await self._upsert_endpoint(payload)
+        request_hash = self.normalizer.normalize_body(payload.get("request_body")).body_hash
+        response_hash = self.normalizer.normalize_body(payload.get("response_body")).body_hash
         traffic = TrafficLog(
             workspace_id=payload["workspace_id"],
             application_id=payload["application_id"],
@@ -21,6 +25,7 @@ class TrafficStore:
             identity_id=payload.get("identity_id"),
             session_id=payload.get("session_id"),
             endpoint_id=endpoint.id if endpoint else None,
+            parent_traffic_log_id=payload.get("parent_traffic_log_id"),
             request_url=payload["request_url"],
             request_method=payload["request_method"],
             request_headers=payload.get("request_headers") or {},
@@ -31,6 +36,12 @@ class TrafficStore:
             response_size=payload.get("response_size"),
             elapsed_ms=payload.get("elapsed_ms"),
             source=payload.get("source", "crawler"),
+            source_type=payload.get("source_type", payload.get("source", "crawl")),
+            attack_chain_id=payload.get("attack_chain_id"),
+            replay_depth=payload.get("replay_depth", 0),
+            discovered_by=payload.get("discovered_by"),
+            normalized_request_hash=request_hash,
+            normalized_response_hash=response_hash,
         )
         self.db.add(traffic)
         await self.db.flush()

@@ -5,9 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.schemas.application import ApplicationConfig
+from app.schemas.platform import IdentityCreate
 from app.services.scan_service import ScanService
 from app.db.base import get_db
 from app.models.application import Application
+from app.auth.identity_engine import IdentityEngine
 
 router = APIRouter()
 scan_service = ScanService()
@@ -36,10 +38,34 @@ async def upload_config(file: UploadFile = File(...)):
                 config=config_data
             )
             session.add(app)
-            await session.commit()
+            await session.flush()
             await session.refresh(app)
+            identity_ids: list[str] = []
+            identity_engine = IdentityEngine(session)
+            for identity_data in config.identities:
+                identity = await identity_engine.add_identity(
+                    application_id=app.id,
+                    payload=IdentityCreate(**identity_data),
+                    workspace_id=app.workspace_id,
+                )
+                identity_ids.append(identity.id)
+            await session.commit()
         
-        return {"message": "Config uploaded successfully", "config_id": app.id}
+        return {
+            "message": "Config uploaded successfully",
+            "config_id": app.id,
+            "application_id": app.id,
+            "identity_ids": identity_ids,
+            "authorization_scan": {
+                "endpoint": "/api/v1/authorization/scans",
+                "body": {
+                    "application_id": app.id,
+                    "identity_ids": identity_ids,
+                    "scanner_backend": config.scan.get("scanner_backend", "zap"),
+                    "config": config.scan,
+                },
+            },
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid config: {str(e)}")
 

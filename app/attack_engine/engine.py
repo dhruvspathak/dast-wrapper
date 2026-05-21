@@ -1,19 +1,27 @@
 from __future__ import annotations
 
-from typing import Any
-
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.attack_engine.attacks import (
+    BOLAAttack,
+    HorizontalEscalationAttack,
+    TenantBoundaryAttack,
+    VerticalEscalationAttack,
+    WorkflowTransitionAttack,
+)
+from app.attack_engine.base import AttackExecutionResult, AuthorizationAttack
 from app.models.authorization import (
     AttackAttempt,
-    Identity,
+    EvidenceRecord,
     ObjectReference,
     Session,
     TrafficLog,
     ValidationResult,
 )
+from app.replay.lineage import LineageEngine
+from app.storage.traffic_store import TrafficStore
 from app.validation.engine import ValidationEngine
 
 
@@ -28,91 +36,123 @@ class AuthorizationAttackEngine:
         references = await self._references(application_id)
         attempts: list[AttackAttempt] = []
         async with httpx.AsyncClient(follow_redirects=False, timeout=30.0) as client:
-            for baseline in traffic:
-                if not baseline.identity_id or baseline.response_status not in {200, 201, 202, 204, 206}:
-                    continue
-                source_session = sessions.get(baseline.identity_id)
-                if not source_session:
-                    continue
-                related_refs = [ref for ref in references if ref.identity_id == baseline.identity_id]
-                for target_identity_id, target_session in sessions.items():
-                    if target_identity_id == baseline.identity_id:
-                        continue
-                    attempts.append(
-                        await self._replay_cross_identity(
-                            client,
-                            baseline,
-                            target_session,
-                            related_refs,
-                        )
-                    )
+            for attack in self._attacks(client):
+                targets = await attack.discover_targets(
+                    traffic=traffic,
+                    sessions=sessions,
+                    references=references,
+                )
+                for target in targets:
+                    result = await attack.execute(target)
+                    attempts.append(await self._persist_result(scan_job_id, attack.attack_type, result))
         return attempts
 
-    async def _replay_cross_identity(
+    def _attacks(self, client: httpx.AsyncClient) -> list[AuthorizationAttack]:
+        return [
+            BOLAAttack(self.db, self.validation_engine, client),
+            HorizontalEscalationAttack(self.db, self.validation_engine, client),
+            VerticalEscalationAttack(self.db, self.validation_engine, client),
+            TenantBoundaryAttack(self.db, self.validation_engine, client),
+            WorkflowTransitionAttack(self.db, self.validation_engine, client),
+        ]
+
+    async def _persist_result(
         self,
-        client: httpx.AsyncClient,
-        baseline: TrafficLog,
-        target_session: Session,
-        references: list[ObjectReference],
+        scan_job_id: str,
+        attack_type: str,
+        result: AttackExecutionResult,
     ) -> AttackAttempt:
-        headers = self._headers_for_replay(baseline.request_headers, target_session)
-        response = await client.request(
-            baseline.request_method,
-            baseline.request_url,
-            headers=headers,
-            content=baseline.request_body,
-            cookies=target_session.cookies,
+        baseline = result.target.baseline
+        chain = await LineageEngine(self.db).create_attack_chain(
+            workspace_id=baseline.workspace_id,
+            application_id=baseline.application_id,
+            scan_job_id=scan_job_id,
+            chain_type=attack_type,
+            root_traffic_log_id=baseline.id,
+            summary={"target_identity_id": result.target.target_session.identity_id},
         )
-        ref = self._reference_for_request(baseline, references)
-        attack_type = self._attack_type(baseline, ref, target_session)
-        replay_response = {
-            "status_code": response.status_code,
-            "headers": dict(response.headers),
-            "body": response.text,
-            "size": len(response.content),
-        }
+        replay_log = await TrafficStore(self.db).record(
+            {
+                "workspace_id": baseline.workspace_id,
+                "application_id": baseline.application_id,
+                "scan_job_id": scan_job_id,
+                "identity_id": result.target.target_session.identity_id,
+                "session_id": result.target.target_session.id,
+                "parent_traffic_log_id": baseline.id,
+                "request_url": result.replay_request["url"],
+                "request_method": result.replay_request["method"],
+                "request_headers": result.replay_request["headers"],
+                "request_body": result.replay_request.get("body"),
+                "response_status": result.replay_response["status_code"],
+                "response_headers": result.replay_response["headers"],
+                "response_body": result.replay_response["body"],
+                "response_size": result.replay_response["size"],
+                "source": "attack_engine",
+                "source_type": "replay",
+                "attack_chain_id": chain.id,
+                "replay_depth": baseline.replay_depth + 1,
+                "discovered_by": attack_type,
+            }
+        )
         attempt = AttackAttempt(
             workspace_id=baseline.workspace_id,
             application_id=baseline.application_id,
-            scan_job_id=baseline.scan_job_id or "",
+            scan_job_id=scan_job_id,
             attack_type=attack_type,
             source_identity_id=baseline.identity_id,
-            target_identity_id=target_session.identity_id,
-            object_reference_id=ref.id if ref else None,
+            target_identity_id=result.target.target_session.identity_id,
+            object_reference_id=result.target.object_reference.id if result.target.object_reference else None,
             baseline_traffic_log_id=baseline.id,
-            replay_request={
-                "method": baseline.request_method,
-                "url": baseline.request_url,
-                "headers": headers,
-                "body": baseline.request_body,
-            },
-            replay_response=replay_response,
+            replay_traffic_log_id=replay_log.id,
+            attack_chain_id=chain.id,
+            replay_request=result.replay_request,
+            replay_response=result.replay_response,
             status="replayed",
-            evidence={"strategy": "cross_identity_replay"},
+            evidence={"strategy": attack_type, "mutation": result.target.mutation or {}},
         )
         self.db.add(attempt)
         await self.db.flush()
-        validation = self.validation_engine.validate(
-            baseline_response={
-                "status_code": baseline.response_status,
-                "headers": baseline.response_headers,
-                "body": baseline.response_body,
-            },
-            replay_response=replay_response,
-            attack_type=attack_type,
-        )
-        result = ValidationResult(
+        validation = result.validation
+        validation_result = ValidationResult(
             workspace_id=baseline.workspace_id,
             attack_attempt_id=attempt.id,
             verdict=validation["verdict"],
             confidence=validation["confidence"],
             status_code_delta=validation["status_code_delta"],
             body_delta=validation["body_delta"],
+            normalized_diff=validation["normalized_diff"],
             sensitive_fields=validation["sensitive_fields"],
             semantic_indicators=validation["semantic_indicators"],
+            validation_reasons=validation["validation_reasons"],
             evidence=validation["evidence"],
         )
-        self.db.add(result)
+        self.db.add(validation_result)
+        self.db.add(
+            EvidenceRecord(
+                workspace_id=baseline.workspace_id,
+                application_id=baseline.application_id,
+                scan_job_id=scan_job_id,
+                attack_attempt_id=attempt.id,
+                attack_chain_id=chain.id,
+                evidence_type=attack_type,
+                baseline_request={
+                    "method": baseline.request_method,
+                    "url": baseline.request_url,
+                    "headers": baseline.request_headers,
+                    "body": baseline.request_body,
+                },
+                baseline_response={
+                    "status_code": baseline.response_status,
+                    "headers": baseline.response_headers,
+                    "body": baseline.response_body,
+                },
+                replay_request=result.replay_request,
+                replay_response=result.replay_response,
+                normalized_diffs=validation["normalized_diff"],
+                validation_evidence=validation["evidence"],
+                confidence=validation["confidence"],
+            )
+        )
         await self.db.flush()
         await self.db.refresh(attempt)
         return attempt
@@ -130,37 +170,3 @@ class AuthorizationAttackEngine:
     async def _references(self, application_id: str) -> list[ObjectReference]:
         result = await self.db.execute(select(ObjectReference).where(ObjectReference.application_id == application_id))
         return list(result.scalars().all())
-
-    def _headers_for_replay(self, original_headers: dict[str, Any], target_session: Session) -> dict[str, str]:
-        blocked = {"cookie", "host", "content-length"}
-        headers = {
-            key: str(value)
-            for key, value in (original_headers or {}).items()
-            if key.lower() not in blocked
-        }
-        headers.update({key: str(value) for key, value in (target_session.auth_headers or {}).items()})
-        return headers
-
-    def _reference_for_request(
-        self,
-        traffic: TrafficLog,
-        references: list[ObjectReference],
-    ) -> ObjectReference | None:
-        for reference in references:
-            if reference.value in traffic.request_url or (
-                traffic.request_body and reference.value in traffic.request_body
-            ):
-                return reference
-        return references[0] if references else None
-
-    def _attack_type(
-        self,
-        traffic: TrafficLog,
-        reference: ObjectReference | None,
-        target_session: Session,
-    ) -> str:
-        if reference and reference.reference_type in {"numeric_id", "uuid", "object"}:
-            return "BOLA"
-        if traffic.request_method in {"POST", "PUT", "PATCH", "DELETE"}:
-            return "horizontal_privilege_escalation"
-        return "broken_access_control"
