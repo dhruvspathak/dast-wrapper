@@ -217,17 +217,53 @@ class AuthAssertionEngine:
         }
         discovered_routes: list[str] = []
 
+        current_url = page.url
+        if current_url and not self._is_login_url(current_url):
+            discovered_routes.append(current_url)
+            behavioral["protected_routes_accessible"] = True
+            if any(pat in current_url for pat in ROLE_SPECIFIC_PATTERNS):
+                behavioral["role_specific_routes_accessible"] = True
+
         for route in self.protected_routes:
             url = urljoin(application_base_url + "/", route.lstrip("/"))
-            try:
-                response = await page.goto(url, wait_until="networkidle", timeout=20000)
-            except Exception as exc:
-                behavioral["checked_routes"][url] = {"status": "error", "error": str(exc)}
-                continue
+            status = None
+            destination = None
+            accessible = False
+            route_name = route
 
-            status = response.status if response else None
-            destination = page.url
-            accessible = bool(status and status < 400 and not self._is_login_url(destination))
+            if route.startswith("/api") or route.startswith("/graphql"):
+                # Prefer client-side fetch for API endpoints to preserve SPA auth context.
+                try:
+                    result = await page.evaluate(
+                        '''async (url) => {
+                            try {
+                                const res = await fetch(url, { credentials: 'include' });
+                                return { status: res.status, redirected: res.redirected, url: res.url };
+                            } catch (err) {
+                                return { error: err.toString() };
+                            }
+                        }''',
+                        url,
+                    )
+                    status = result.get("status") if isinstance(result, dict) else None
+                    destination = result.get("url") if isinstance(result, dict) else url
+                    accessible = bool(status and status < 400)
+                except Exception as exc:
+                    behavioral["checked_routes"][url] = {"status": "error", "error": str(exc)}
+                    continue
+            else:
+                try:
+                    response = await page.goto(url, wait_until="networkidle", timeout=20000)
+                    status = response.status if response else None
+                    destination = page.url
+                    if destination and destination.rstrip("/") == url.rstrip("/") and not self._is_login_url(destination):
+                        accessible = True
+                    elif status and status < 400 and not self._is_login_url(destination):
+                        accessible = True
+                except Exception as exc:
+                    behavioral["checked_routes"][url] = {"status": "error", "error": str(exc)}
+                    continue
+
             behavioral["checked_routes"][url] = {
                 "status": status,
                 "destination": destination,
