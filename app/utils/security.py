@@ -12,3 +12,11 @@ class SecurityUtils:
 
     def decrypt(self, token: str) -> str:
         return self.fernet.decrypt(token.encode()).decode()
+
+
+def encrypt_data(data: str) -> str:
+    return SecurityUtils().encrypt(data)
+
+
+def decrypt_data(token: str) -> str:
+    return SecurityUtils().decrypt(token)

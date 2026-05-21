@@ -6,6 +6,18 @@ from .finding import Finding
 from .auth_session import AuthSession
 from .report import Report
 from .replay import ReplayValidation
+from .authorization import (
+    AttackAttempt,
+    AuthorizationGraphSnapshot,
+    Endpoint,
+    Identity,
+    ObjectReference,
+    ScanJob,
+    Session,
+    TrafficLog,
+    ValidationResult,
+    WorkflowState,
+)
 
 __all__ = [
     "Application",
@@ -14,4 +26,14 @@ __all__ = [
     "AuthSession",
     "Report",
     "ReplayValidation",
+    "Identity",
+    "Session",
+    "Endpoint",
+    "ObjectReference",
+    "TrafficLog",
+    "AttackAttempt",
+    "ValidationResult",
+    "ScanJob",
+    "WorkflowState",
+    "AuthorizationGraphSnapshot",
 ]

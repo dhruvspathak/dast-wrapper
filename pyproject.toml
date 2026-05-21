@@ -32,6 +32,7 @@ dependencies = [
     # HTTP
     "httpx>=0.28.0",
     "aiofiles>=24.1.0",
+    "networkx>=3.4.0",
 
     # OpenAI
     "openai>=1.57.0",

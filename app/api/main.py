@@ -6,7 +6,16 @@ from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.middleware import CorrelationIdMiddleware
 from app.db.base import close_database
-from app.api.routes import scans, auth, reports, dashboard, health
+from app.api.routes import (
+    applications,
+    auth,
+    authorization,
+    dashboard,
+    health,
+    identities,
+    reports,
+    scans,
+)
 
 
 configure_logging(settings.log_level)
@@ -36,6 +45,9 @@ app.add_middleware(CorrelationIdMiddleware)
 
 # Include routers
 app.include_router(scans.router, prefix="/api/v1/scans", tags=["scans"])
+app.include_router(applications.router, prefix="/api/v1/applications", tags=["applications"])
+app.include_router(identities.router, prefix="/api/v1", tags=["identities"])
+app.include_router(authorization.router, prefix="/api/v1/authorization", tags=["authorization"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(health.router, prefix="/health", tags=["health"])

@@ -6,17 +6,18 @@ from app.validators.idor_validator import IDORValidator
 from app.validators.authorization_engine import AuthorizationValidationEngine
 from app.auth.context_manager import AuthContextManager
 from app.auth.playwright_auth import PlaywrightAuthEngine
-from app.ai.triage_engine import AITriageEngine
 import asyncio
 from app.db.base import get_db
 from app.models.finding import Finding
 from app.models.scan import Scan
 from app.models.application import Application
+from app.models.authorization import ScanJob
 from app.core.config import settings
 from sqlalchemy import select, update
 import time
 import logging
 from datetime import datetime
+from app.orchestration.engine import OrchestrationEngine
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ async def _execute_zap_scan(self, scan_id):
     validated = 0
     manual_review = 0
 
-    # Save findings to DB after replay/auth/AI validation enriches each item.
+    # Save findings to DB after deterministic replay and authorization validation.
     async with get_db() as session:
         auth_contexts = await AuthContextManager(session).list_contexts(
             application_id=scan.application_id,
@@ -125,7 +126,6 @@ async def _execute_zap_scan(self, scan_id):
         )
         async with ReplayEngine(allowed_hosts=settings.allowed_replay_hosts) as replay_engine:
             auth_validator = AuthorizationValidationEngine(replay_engine)
-            triage_engine = AITriageEngine()
 
             for finding_data in findings:
                 canonical = scanner.normalize_finding(
@@ -138,7 +138,7 @@ async def _execute_zap_scan(self, scan_id):
                     meta={
                         'progress': (
                             f'Validating finding {processed + 1}/{len(findings)} '
-                            'with replay, auth, IDOR/BOLA, and triage'
+                            'with replay, auth, and IDOR/BOLA checks'
                         )
                     },
                 )
@@ -146,7 +146,6 @@ async def _execute_zap_scan(self, scan_id):
                     canonical=canonical,
                     replay_engine=replay_engine,
                     auth_validator=auth_validator,
-                    triage_engine=triage_engine,
                     auth_contexts=auth_contexts,
                 )
                 processed += 1
@@ -198,7 +197,6 @@ async def _validate_canonical_finding(
     canonical,
     replay_engine: ReplayEngine,
     auth_validator: AuthorizationValidationEngine,
-    triage_engine: AITriageEngine,
     auth_contexts: list,
 ) -> dict:
     replay_results = []
@@ -249,40 +247,26 @@ async def _validate_canonical_finding(
             }
         )
 
-    ai_analysis = await triage_engine.triage_finding(
-        canonical,
-        replay_evidence=replay_results,
-        validation_results=validation_results,
-    )
     exploitability_score = max(
         [item.get("confidence", 0.0) for item in validation_results if item.get("exploitable")]
-        or [ai_analysis.get("confidence", 0.0)]
+        or [0.0]
     )
-    validation_status = _finding_validation_status(validation_results, ai_analysis)
+    validation_status = _finding_validation_status(validation_results)
     return {
         "replay_results": replay_results,
-        "ai_analysis": ai_analysis,
+        "ai_analysis": None,
         "exploitability_score": exploitability_score,
         "validation_status": validation_status,
     }
 
 
-def _finding_validation_status(validation_results: list[dict], ai_analysis: dict) -> str:
+def _finding_validation_status(validation_results: list[dict]) -> str:
     for item in validation_results:
         if item.get("status") == "confirmed":
             return "confirmed"
     for item in validation_results:
         if item.get("status") == "likely":
             return "likely"
-    classification = str(ai_analysis.get("classification", "")).lower()
-    if classification.startswith("confirmed"):
-        return "confirmed"
-    if classification.startswith("likely"):
-        return "likely"
-    if "false positive" in classification:
-        return "false_positive"
-    if "informational" in classification:
-        return "informational"
     return "needs_manual_review"
 
 async def _wait_for_zap_scan(scanner, zap_scan_id, target_url, task, scan_id):
@@ -364,3 +348,22 @@ async def _scan_cancelled(scan_id: str | None) -> bool:
     async with get_db() as session:
         result = await session.execute(select(Scan.status).where(Scan.id == scan_id))
         return result.scalar_one_or_none() in {"cancelling", "cancelled"}
+
+
+@celery_app.task(bind=True, name="run_authorization_scan")
+def run_authorization_scan(self, scan_job_id: str):
+    return asyncio.run(_run_authorization_scan_async(scan_job_id))
+
+
+async def _run_authorization_scan_async(scan_job_id: str):
+    async with get_db() as session:
+        try:
+            job = await OrchestrationEngine(session).run_authorization_scan(scan_job_id)
+            return {"scan_job_id": job.id, "status": job.status, "results": job.results}
+        except Exception as exc:
+            await session.execute(
+                update(ScanJob)
+                .where(ScanJob.id == scan_job_id)
+                .values(status="failed", error=str(exc), completed_at=datetime.utcnow())
+            )
+            raise
