@@ -177,7 +177,8 @@ class AuthAssertionEngine:
         try:
             count = await page.locator(selector).count()
             return count > 0
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to check selector %s: %s", selector, exc)
             return False
 
     def _evaluate_network_state(self, auth_context: AuthContext) -> dict[str, Any]:

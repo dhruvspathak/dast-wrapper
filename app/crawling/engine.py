@@ -44,12 +44,14 @@ class AuthenticatedCrawler:
                 body = None
                 try:
                     body = await response.text()
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed to extract response body: %s", exc)
                     body = None
                 request_body = None
                 try:
                     request_body = request.post_data
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed to extract request body: %s", exc)
                     request_body = None
                 discovered_urls.add(request.url)
                 await self.traffic_store.record(
@@ -99,7 +101,8 @@ class AuthenticatedCrawler:
                     "a[href]",
                     "links => links.map(link => link.href)",
                 )
-            except Exception:
+            except Exception as exc:
+                logger.debug("Failed to extract hrefs from page: %s", exc)
                 continue
             for href in hrefs:
                 if (

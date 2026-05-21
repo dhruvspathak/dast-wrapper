@@ -260,7 +260,8 @@ class PlaywrightAuthEngine:
             try:
                 if await self.page.locator(selector).count() > 0:
                     return selector
-            except Exception:
+            except Exception as exc:
+                logger.debug("Selector %s not found: %s", selector, exc)
                 continue
         return None
 
@@ -319,8 +320,8 @@ class PlaywrightAuthEngine:
     async def _wait_for_hydration(self) -> None:
         try:
             await self.page.wait_for_timeout(2000)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Page timeout during hydration wait: %s", exc)
 
     async def _extract_jwt(
         self,

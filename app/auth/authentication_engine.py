@@ -10,9 +10,10 @@ from app.auth.identity_engine import IdentityEngine
 from app.models.application import Application
 from app.models.authorization import Identity, Session
 from app.utils.security import decrypt_data
+from app.core.config import settings
 
 
-SESSION_STATE_ROOT = Path("reports/browser-state")
+SESSION_STATE_ROOT = Path(settings.browser_state_root)
 
 
 class AuthenticationIntelligenceEngine:

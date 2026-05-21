@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO")
 
+    # Storage
+    browser_state_root: str = Field(default="reports/browser-state")
+
     @property
     def cors_origins(self) -> list[str]:
         if not self.api_cors_origins:
