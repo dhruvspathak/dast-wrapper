@@ -111,18 +111,79 @@ class PlaywrightAuthEngine:
             submit_selector,
         )
 
+        # Fill username first (if present). Some flows use a multi-step 'Next' button.
         if username_selector and username:
             logger.debug("Filling username using selector %s", username_selector)
             await self.page.fill(username_selector, username)
+
+        # If password field exists on the same page, fill it. Otherwise, handle multi-step flows.
         if password_selector and password:
             logger.debug("Filling password using selector %s", password_selector)
             await self.page.fill(password_selector, password)
-        if submit_selector:
-            logger.info("Submitting login form using selector %s", submit_selector)
-            await self.page.click(submit_selector)
+            # submit after filling password
+            if submit_selector:
+                logger.info("Submitting login form using selector %s", submit_selector)
+                try:
+                    await self.page.click(submit_selector)
+                except Exception:
+                    logger.debug("Submit click failed, trying Enter on password field")
+                    try:
+                        await self.page.press(password_selector, "Enter")
+                    except Exception:
+                        pass
         else:
-            logger.error("Unable to locate login submit button; aborting auth")
-            raise RuntimeError("Unable to locate login submit button")
+            # No password field initially — might be a multi-step flow (username -> Next -> password)
+            if submit_selector:
+                logger.info("Attempting to advance login flow using selector %s", submit_selector)
+                submit_locator = self.page.locator(submit_selector)
+                try:
+                    enabled = await submit_locator.is_enabled()
+                except Exception:
+                    enabled = True
+
+                if not enabled and username_selector:
+                    # try pressing Enter on the username field as a fallback
+                    try:
+                        logger.debug("Submit button disabled; pressing Enter in username field")
+                        await self.page.press(username_selector, "Enter")
+                    except Exception:
+                        logger.debug("Enter press on username failed; attempting click anyway")
+                        await submit_locator.click()
+                else:
+                    await submit_locator.click()
+
+                # After advancing, wait for password field to appear
+                pw_deadline = time.time() + 10.0
+                seen_password = None
+                while time.time() < pw_deadline:
+                    try:
+                        seen_password = await self._detect_selector(DEFAULT_PASSWORD_SELECTORS)
+                        if seen_password:
+                            password_selector = seen_password
+                            logger.debug("Detected password field after advancing: %s", password_selector)
+                            break
+                    except Exception:
+                        pass
+                    await self.page.wait_for_timeout(250)
+
+                if password_selector and password:
+                    try:
+                        logger.debug("Filling password using selector %s", password_selector)
+                        await self.page.fill(password_selector, password)
+                        # try to submit via Enter first
+                        try:
+                            await self.page.press(password_selector, "Enter")
+                        except Exception:
+                            if submit_selector:
+                                try:
+                                    await self.page.click(submit_selector)
+                                except Exception:
+                                    logger.debug("Final submit click failed")
+                    except Exception:
+                        logger.debug("Failed to fill password after advance")
+            else:
+                logger.error("Unable to locate login submit button; aborting auth")
+                raise RuntimeError("Unable to locate login submit button")
 
         await self._wait_for_auth_flow(login_url)
         await self._wait_for_hydration()
