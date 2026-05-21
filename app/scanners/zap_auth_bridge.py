@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from urllib.parse import urlparse
+import time
 
 from zapv2 import ZAPv2
 
@@ -76,3 +77,36 @@ class ZAPAuthContextBridge:
                 self.zap.replacer.remove_all_rules()
             except Exception:
                 pass
+
+    def verify_authenticated_access(self, target_url: str, protected_paths: list[str] | None = None) -> bool:
+        """Attempt to access a few protected paths through ZAP to ensure auth was applied."""
+        if protected_paths is None:
+            protected_paths = ["/api/me", "/dashboard", "/profile"]
+
+        parsed = urlparse(target_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        for path in protected_paths:
+            url = base + path
+            try:
+                # ask ZAP to open the URL through the proxy
+                self.zap.core.urlopen(url)
+                # allow ZAP to process the request
+                time.sleep(1)
+                # attempt to locate a message for this URL in ZAP's messages
+                msgs = self.zap.core.messages()
+                matched = [m for m in msgs if url in (m.get("requestHeader") or "")]
+                if not matched:
+                    logger.debug("ZAP did not record a message for %s", url)
+                    return False
+                # inspect response status line
+                # the message structure varies; look for status in the responseHeader
+                for m in matched:
+                    resp = m.get("responseHeader") or ""
+                    if " 200 " in resp or " 302 " in resp or " 301 " in resp:
+                        # consider 200/30x as evidence ZAP could access the route
+                        return True
+            except Exception as exc:
+                logger.debug("ZAP authenticated access check failed for %s: %s", url, exc)
+                return False
+        return False

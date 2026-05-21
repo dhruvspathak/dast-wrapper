@@ -52,6 +52,10 @@ class ZAPScanner(ScannerPlugin):
         if auth_headers or cookies:
             bridge = ZAPAuthContextBridge(self.zap)
             bridge.apply(target_url, auth_headers or {}, cookies or {})
+            # verify ZAP can access protected routes using the injected auth
+            ok = bridge.verify_authenticated_access(target_url)
+            if not ok:
+                raise RuntimeError("ZAP could not access protected routes with provided auth context; aborting scan")
 
         # Set target
         try:

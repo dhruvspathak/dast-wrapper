@@ -83,11 +83,17 @@ class AuthenticatedCrawler:
         visited = {page.url}
         queue = [page.url]
         auth_boundary_tokens = {"/login", "/signin", "/sign-in", "/auth", "/account/login", "/oauth"}
+        static_tokens = {"/_next/", ".js", ".css", ".map", ".ico", "static/", ".png", ".jpg", ".jpeg", ".svg"}
         while queue and len(visited) < self.max_pages:
             current = queue.pop(0)
             try:
                 await page.goto(current, wait_until="networkidle")
-                if any(token in page.url.lower() for token in auth_boundary_tokens):
+                cur_lower = page.url.lower()
+                if any(token in cur_lower for token in auth_boundary_tokens):
+                    # hit auth boundary; do not traverse further from this page
+                    continue
+                if any(token in cur_lower for token in static_tokens):
+                    # skip static/asset pages
                     continue
                 hrefs: list[Any] = await page.eval_on_selector_all(
                     "a[href]",
@@ -101,6 +107,7 @@ class AuthenticatedCrawler:
                     and href.startswith(base_url)
                     and href not in visited
                     and not any(token in href.lower() for token in auth_boundary_tokens)
+                    and not any(token in href.lower() for token in static_tokens)
                 ):
                     visited.add(href)
                     discovered_urls.add(href)

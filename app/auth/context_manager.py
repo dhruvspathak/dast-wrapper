@@ -18,6 +18,7 @@ class AuthContextManager:
         self.session = session
 
     async def save_context(self, context: AuthContext) -> AuthSession:
+        # Persist auth context to DB
         row = AuthSession(
             workspace_id=context.workspace_id,
             application_id=context.application_id,
@@ -34,6 +35,14 @@ class AuthContextManager:
         )
         self.session.add(row)
         await self.session.flush()
+        logger = __import__("logging").getLogger(__name__)
+        logger.info(
+            "Saved AuthContext for app=%s role=%s workspace=%s path=%s",
+            context.application_id,
+            context.role,
+            context.workspace_id,
+            context.browser_storage_state_path,
+        )
         return row
 
     async def get_context(
