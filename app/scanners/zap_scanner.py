@@ -78,6 +78,17 @@ class ZAPScanner(ScannerPlugin):
         while int(self.zap.spider.status(spider_id)) < 100:
             time.sleep(1)
 
+        # Start AJAX spider as well for SPA-heavy targets
+        try:
+            ajax_id = self.zap.ajaxSpider.scan(target_url)
+            logger.info(f"Started AJAX spider scan: {ajax_id}")
+            while self.zap.ajaxSpider.status() != "100":
+                time.sleep(1)
+        except Exception as exc:
+            logger.warning(
+                f"ZAP AJAX spider failed for {target_url} via {self.api_url}: {exc}"
+            )
+
         # Start active scan
         try:
             # Use recurse=True to ensure it picks up the URL even if it's just the root of a site
