@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.auth_session import AuthSession
 from app.schemas.canonical import AuthContext, redact_secret_data
 
+BROWSER_STATE_ROOT = Path("reports/browser-state")
+
 
 class AuthContextManager:
     def __init__(self, session: AsyncSession):
@@ -103,9 +105,10 @@ class AuthContextManager:
             cookies=row.cookies or token_blob.get("cookies", {}),
             local_storage=row.local_storage or token_blob.get("local_storage", token_blob.get("localStorage", {})),
             session_storage=row.session_storage or token_blob.get("session_storage", token_blob.get("sessionStorage", {})),
-            refresh_token=row.refresh_token,
-            browser_storage_state_path=row.browser_storage_state_path,
+            refresh_token=row.refresh_token or token_blob.get("refresh_token"),
+            browser_storage_state_path=row.browser_storage_state_path or token_blob.get("browser_storage_state_path"),
             expires_at=row.expires_at,
+            metadata=token_blob.get("metadata", {}),
         )
 
     @staticmethod
@@ -115,5 +118,5 @@ class AuthContextManager:
 
 def session_state_path(workspace_id: str, application_id: str, role: str) -> str:
     safe_role = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in role)
-    path = Path("/browser-state") / workspace_id / application_id / f"{safe_role}.json"
+    path = BROWSER_STATE_ROOT / workspace_id / application_id / f"{safe_role}.json"
     return str(path)

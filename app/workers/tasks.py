@@ -4,6 +4,7 @@ from app.scanners.registry import scanner_registry
 from app.replay.replay_engine import ReplayEngine
 from app.validators.idor_validator import IDORValidator
 from app.validators.authorization_engine import AuthorizationValidationEngine
+from app.auth.assertions import AuthenticatedSessionValidator
 from app.auth.context_manager import AuthContextManager
 from app.auth.playwright_auth import PlaywrightAuthEngine
 import asyncio
@@ -73,28 +74,134 @@ async def _execute_zap_scan(self, scan_id):
     # Perform authentication if configured
     auth_headers = {}
     cookies = {}
+    auth_context = None
     auth_config = app_config.get('authentication')
-    if auth_config and auth_config.get('type') == 'playwright_jwt':
-        try:
-            self.update_state(state='PROGRESS', meta={'progress': 'Performing authentication'})
-            login_url = auth_config.get('login_url')
-            # Default to admin role for scan if multiple roles exist
-            users = auth_config.get('users', {})
-            role = 'admin' if 'admin' in users else list(users.keys())[0] if users else None
-            user_data = users.get(role) if role else None
-            
-            if login_url and user_data:
-                async with PlaywrightAuthEngine(workspace_id=scan.workspace_id, application_id=scan.application_id, role=role) as auth_engine:
+    auth_required = bool(auth_config and auth_config.get('users'))
+    if auth_required:
+        self.update_state(state='PROGRESS', meta={'progress': 'Performing authentication'})
+        login_url = auth_config.get('login_url') or target_url
+        users = auth_config.get('users', {})
+        role = 'admin' if 'admin' in users else list(users.keys())[0] if users else None
+        user_data = users.get(role) if role else None
+
+        auth_manager = AuthContextManager(session)
+        if role and user_data:
+            existing_context = await auth_manager.get_context(
+                application_id=scan.application_id,
+                role=role,
+                workspace_id=scan.workspace_id,
+            )
+            if existing_context:
+                validator = AuthenticatedSessionValidator(target_url)
+                validation = await validator.validate(existing_context, login_url=login_url)
+                if validation.confidence_level != 'low':
+                    auth_context = existing_context
+                    auth_headers = auth_context.headers or {}
+                    cookies = auth_context.cookies or {}
+                    logger.info(
+                        "Reused stored auth context for role %s with confidence %s",
+                        role,
+                        validation.confidence_level,
+                    )
+                else:
+                    logger.warning(
+                        "Stored auth context for role %s failed validation with low confidence and will be refreshed",
+                        role,
+                    )
+
+        if auth_context is None and role and user_data:
+            try:
+                async with PlaywrightAuthEngine(
+                    workspace_id=scan.workspace_id,
+                    application_id=scan.application_id,
+                    role=role,
+                ) as auth_engine:
                     auth_context = await auth_engine.authenticate(
                         login_url=login_url,
                         username=user_data.get('username'),
-                        password=user_data.get('password')
+                        password=user_data.get('password'),
+                        application_url=target_url,
                     )
-                    auth_headers = auth_context.headers
-                    cookies = auth_context.cookies
-                    logger.info(f"Authenticated as {role}, captured {len(cookies)} cookies")
-        except Exception as exc:
-            logger.exception("Authentication failed, proceeding unauthenticated: %s", exc)
+                validation = await AuthenticatedSessionValidator(target_url).validate(
+                    auth_context,
+                    login_url=login_url,
+                )
+                if validation.confidence_level == 'low':
+                    await session.execute(
+                        update(Scan)
+                        .where(Scan.id == scan_id)
+                        .values(
+                            status='auth_unverified',
+                            completed_at=datetime.utcnow(),
+                            results={
+                                'auth_contexts': 0,
+                                'auth_confidence': validation.confidence_level,
+                                'auth_failure': 'low_confidence',
+                            },
+                        )
+                    )
+                    return
+
+                auth_context.metadata['auth_assertions'] = validation.as_dict()
+                auth_context.metadata['authenticated_routes'] = validation.discovered_routes
+
+                auth_manager = AuthContextManager(session)
+                await auth_manager.save_context(auth_context)
+                await session.commit()
+
+                auth_headers = auth_context.headers or {}
+                cookies = auth_context.cookies or {}
+                logger.info(
+                    "Authenticated as %s, captured %s cookies, auth confidence %s",
+                    role,
+                    len(cookies),
+                    validation.confidence_level,
+                )
+            except Exception as exc:
+                logger.exception("Authentication failed: %s", exc)
+                await session.execute(
+                    update(Scan)
+                    .where(Scan.id == scan_id)
+                    .values(
+                        status='auth_failed',
+                        completed_at=datetime.utcnow(),
+                        error=str(exc),
+                        results={
+                            'auth_contexts': 0,
+                            'auth_failure': str(exc),
+                        },
+                    )
+                )
+                return
+
+        if auth_context is None:
+            await session.execute(
+                update(Scan)
+                .where(Scan.id == scan_id)
+                .values(
+                    status='auth_failed',
+                    completed_at=datetime.utcnow(),
+                    results={
+                        'auth_contexts': 0,
+                        'auth_failure': 'no_valid_auth_context',
+                    },
+                )
+            )
+            return
+    elif auth_config and not auth_config.get('users'):
+        await session.execute(
+            update(Scan)
+            .where(Scan.id == scan_id)
+            .values(
+                status='auth_failed',
+                completed_at=datetime.utcnow(),
+                results={
+                    'auth_contexts': 0,
+                    'auth_failure': 'authentication_config_missing_users',
+                },
+            )
+        )
+        return
 
     scanner = scanner_registry.create(scan.scanner)
     scan_id_zap = scanner.start_scan(ScanTarget(url=target_url, auth_headers=auth_headers, cookies=cookies))

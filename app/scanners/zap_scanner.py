@@ -6,6 +6,7 @@ from requests.exceptions import RequestException
 
 from app.core.config import settings
 from app.scanners.base import ScannerFinding, ScannerPlugin, ScanTarget
+from app.scanners.zap_auth_bridge import ZAPAuthContextBridge
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,11 @@ class ZAPScanner(ScannerPlugin):
 
         self.wait_until_ready()
 
+        # Prepare auth context before opening the target
+        if auth_headers or cookies:
+            bridge = ZAPAuthContextBridge(self.zap)
+            bridge.apply(target_url, auth_headers or {}, cookies or {})
+
         # Set target
         try:
             self.zap.urlopen(target_url)
@@ -54,32 +60,6 @@ class ZAPScanner(ScannerPlugin):
             raise RuntimeError(
                 f"ZAP proxy at {self.api_url} could not open target {target_url}: {exc}"
             ) from exc
-
-        # Inject auth headers/cookies using ZAP's Replacer extension
-        # This is more robust than httpsessions for many modern apps
-        if auth_headers:
-            for header, value in auth_headers.items():
-                logger.info(f"Injecting header {header}")
-                self.zap.replacer.add_rule(
-                    description=f"Auth header {header}",
-                    enabled="true",
-                    matchtype="REQ_HEADER",
-                    matchregex="false",
-                    replacement=value,
-                    matchstring=header,
-                )
-
-        if cookies:
-            cookie_str = "; ".join([f"{k}={v}" for k, v in cookies.items()])
-            logger.info(f"Injecting cookies: {list(cookies.keys())}")
-            self.zap.replacer.add_rule(
-                description="Auth cookies",
-                enabled="true",
-                matchtype="REQ_HEADER",
-                matchregex="false",
-                replacement=cookie_str,
-                matchstring="Cookie",
-            )
 
         # Start spider
         try:

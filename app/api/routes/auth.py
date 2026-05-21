@@ -32,7 +32,7 @@ async def authenticate(request: AuthenticateRequest):
         raise HTTPException(status_code=400, detail=f"Role {request.role} not found in config")
     
     user = users[request.role]
-    login_url = auth_config.get('login_url')
+    login_url = auth_config.get('login_url') or config.get('application', {}).get('base_url')
     
     # Authenticate using Playwright
     async with PlaywrightAuthEngine(
@@ -44,6 +44,7 @@ async def authenticate(request: AuthenticateRequest):
             login_url,
             user['username'],
             user['password'],
+            application_url=config.get('application', {}).get('base_url') or login_url,
         )
     
     # Save session

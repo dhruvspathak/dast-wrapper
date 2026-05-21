@@ -82,10 +82,13 @@ class AuthenticatedCrawler:
     async def _walk_links(self, page, base_url: str, discovered_urls: set[str]) -> None:
         visited = {page.url}
         queue = [page.url]
+        auth_boundary_tokens = {"/login", "/signin", "/sign-in", "/auth", "/account/login", "/oauth"}
         while queue and len(visited) < self.max_pages:
             current = queue.pop(0)
             try:
                 await page.goto(current, wait_until="networkidle")
+                if any(token in page.url.lower() for token in auth_boundary_tokens):
+                    continue
                 hrefs: list[Any] = await page.eval_on_selector_all(
                     "a[href]",
                     "links => links.map(link => link.href)",
@@ -93,7 +96,12 @@ class AuthenticatedCrawler:
             except Exception:
                 continue
             for href in hrefs:
-                if isinstance(href, str) and href.startswith(base_url) and href not in visited:
+                if (
+                    isinstance(href, str)
+                    and href.startswith(base_url)
+                    and href not in visited
+                    and not any(token in href.lower() for token in auth_boundary_tokens)
+                ):
                     visited.add(href)
                     discovered_urls.add(href)
                     queue.append(href)
